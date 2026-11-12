@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.host.json",
+  "compilerOptions": {
+    "outDir": "lib"
+  },
+  "include": [
+    "src/client/window-state.ts",
+    "src/client/stream.ts",
+    "src/client/transcript.ts",
+    "src/client/markdown.ts"
+  ]
+}

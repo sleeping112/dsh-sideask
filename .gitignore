@@ -1,0 +1,9 @@
+# Logs / build output
+lib/
+node_modules/
+*.log
+
+# Local dev harness
+.dshhome/
+_tmp/
+coverage/

@@ -1,0 +1,38 @@
+# Example profile overlay for local testing.
+#
+# Two ways to use it:
+#  1. Copy the entry into your profile's `cordis.patch.yml`
+#     (`$DSH_HOME/profiles/web/cordis.patch.yml`), then restart.
+#  2. Pass it as a launcher overlay:
+#     dsh --profile web --patch E:/workspace/dsh-sideask/examples/profile-patch.yml
+#
+# Every key maps to the schemastery `Config` exported by lib/host/index.js.
+# All fields are volatile: changes apply without a plugin reload.
+- id: sideask
+  config:
+    enabled: true
+    # Empty provider/model = use the host's default model selection
+    # (ctx.get('agentDefaultModel').currentSelection()).
+    provider: ''
+    model: ''
+    answerMaxTokens: 1200
+    temperature: 0.4
+    # Context window and budget.
+    recentMessageLimit: 12
+    contextBudgetTokens: 3000
+    autoSummary: true
+    requireCitations: true
+    historyTurns: 8
+    # Privacy switches — set readContext to false to disable context reading
+    # entirely (the plugin then answers from the question alone).
+    readContext: true
+    redactSensitive: true
+    persistHistory: true
+    customRedactionPatterns: []
+    # UI.
+    defaultCorner: bottom-right
+    hotkey: Alt+Shift+A
+    # Limits.
+    maxThreads: 30
+    maxMessagesPerThread: 200
+    requestTimeoutMs: 120000
