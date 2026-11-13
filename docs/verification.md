@@ -320,3 +320,46 @@ taskkill /T /F /PID <该实例主进程 pid>
 2. **浏览器 UI 的端到端点击未自动化** —— 本机没有可用的浏览器自动化驱动；窗口几何/流解析/映射/渲染均有单测，真实渲染需人工按 `docs/quickstart.md` 的 10 分钟验收脚本走一遍。
 3. **单包 client URL 404** —— 宿主只服务带 `rev` 的组合 URL；这是宿主行为，验证时以组合 URL 为准。
 4. **`dshhub.permissions.host` 已移除** —— 宿主 SDK 不读该字段，声明它会造成“有权限系统”的错觉；只保留 `permissions.network: []`（元数据）。
+
+---
+
+## 10. 真实 profile 安装记录（2026-11-13）
+
+目标：把插件装进用户实际使用的 profile（`C:\Users\32602\.dsh\profiles\desktop`，由 Electron 应用独占管理）。
+
+### 10.1 安装前备份
+
+```
+E:\workspace\_probe\profile-desktop-backup-20261113-232048\
+  package.json  cordis.patch.yml  cordis.yml  pnpm-lock.yaml  pnpm-workspace.yaml
+```
+
+回滚 = 用这几个文件覆盖回 `~/.dsh/profiles/desktop/`，再 `dsh plugin --profile desktop remove dsh-sideask`。
+
+### 10.2 安装命令与结果
+
+```powershell
+$env:ELECTRON_RUN_AS_NODE = '1'
+& 'D:\deepseek\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add link:E:/workspace/dsh-sideask
+# → dependencies: + dsh-sideask 0.1.0 <- E:\workspace\dsh-sideask
+# → Done in 831ms
+```
+
+验证（安装后立刻检查，未重启应用）：
+
+| 检查 | 结果 |
+|---|---|
+| `profiles/desktop/package.json` 的 `dsh.profile.bundles` | ✅ 末尾新增 `dsh-sideask`（其余 6 个 bundle 保持原序） |
+| `profiles/desktop/node_modules/dsh-sideask` | ✅ junction → `E:\workspace\dsh-sideask` |
+| 用户自定义 `cordis.patch.yml` | ✅ 未被修改（sideask 引用数 0，插件行由包内 bundle patch 提供） |
+| `--dump-config` | ⚠️ CLI 拒绝：`profile "desktop" is managed exclusively by the Electron application`（预期行为，不影响已完成的安装） |
+
+### 10.3 生效方式与后续验证
+
+`desktop` profile 由 Electron 应用独占加载，**需要重启 DeepSeek Harness 应用**（或由插件管理器触发 profile 重载）后：
+1. 启动时不再出现 `dsh: warning: N entry did not activate`；
+2. 主窗口右下角出现「旁问」悬浮球；`Alt+Shift+A` 可唤起；
+3. DevTools 里 `await (await fetch('/plugins/dsh-sideask/api/bootstrap')).json()` 应返回 `apiVersion: 1`。
+
+因为是 `link:` 安装，后续改代码只需 `node scripts/build.mjs` 再重载/重启应用，无需重装。
+
