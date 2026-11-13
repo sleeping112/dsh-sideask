@@ -44,7 +44,17 @@ function buildTypes() {
   console.log('types: lib/host + lib/shared + lib/client (pure modules)')
 }
 
-/** The exact registration wrapper the DSH web client expects. */
+/**
+ * The exact registration wrapper the DSH web client expects.
+ *
+ * There must be exactly ONE registration in the bundle. The factory body (the
+ * esbuild output) must not call `__ModuleLoader__.load` itself: a second
+ * registration from inside the factory is rejected by the loader as
+ * `duplicate factory registration` and fails web boot.
+ *
+ * The factory returns the plugin OBJECT (`{ name, inject, apply }`), not the CJS
+ * module namespace: the loader materializes that object directly.
+ */
 const BUNDLE_HEADER = `/* dsh-sideask browser bundle — built by scripts/build.mjs. Do not edit. */
 window.__ModuleLoader__.load({
   id: "dsh-sideask",
@@ -53,7 +63,7 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
 `
 const BUNDLE_FOOTER = `
-    return module.exports;
+    return module.exports.createPlugin();
   }
 });
 `

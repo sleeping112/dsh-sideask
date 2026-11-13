@@ -54,9 +54,12 @@ if (fs.existsSync(hostConfig)) {
 const clientEntry = path.join(root, 'lib', 'client.js')
 if (fs.existsSync(clientEntry)) {
   const source = fs.readFileSync(clientEntry, 'utf8')
+  const registrations = (source.match(/__ModuleLoader__\.load\(/g) ?? []).length
   check(source.includes('__ModuleLoader__'), 'lib/client.js: must register through window.__ModuleLoader__')
+  check(registrations === 1, `lib/client.js: must contain exactly ONE __ModuleLoader__.load call (found ${registrations})`)
   check(/id:\s*["']dsh-sideask["']/.test(source), 'lib/client.js: loader id must be dsh-sideask')
   check(/factory\s*:\s*function\s*\(\s*require\s*\)/.test(source), 'lib/client.js: must expose factory(require)')
+  check(/return\s+module\.exports\.createPlugin\(\)/.test(source), 'lib/client.js: factory must return the plugin object')
   check(/require\(["']react["']\)/.test(source), 'lib/client.js: React must stay a runtime require')
   check(!/\bimport\s*\(/.test(source), 'lib/client.js: bundle must not contain dynamic import()')
   check(!/^\s*import\s+[^(]/m.test(source), 'lib/client.js: bundle must not contain static imports')

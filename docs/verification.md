@@ -363,3 +363,77 @@ $env:ELECTRON_RUN_AS_NODE = '1'
 
 因为是 `link:` 安装，后续改代码只需 `node scripts/build.mjs` 再重载/重启应用，无需重装。
 
+---
+
+## 11. 事故报告：真实 profile 首次启用导致 web boot 失败（2026-11-13）
+
+### 11.1 现象
+
+在 `desktop` profile 启用本插件后，用户重启应用失败；应用提示“禁用第三方插件”，并把
+`profiles/desktop/package.json` 的 `dsh.profile.bundles` 自动裁剪为只剩
+`@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`（用户原有的 cost-meter /
+spend-wallpaper / agent-team-profile / plugin-market-bundle 一并被禁用）。
+
+### 11.2 根因（应用日志原文）
+
+`%APPDATA%\@deepseek-ai\dsh-desktop\logs\crash-2026-11-13T15-24-27-735Z-web-boot.log`：
+
+```
+Error: web boot: 1 entry did not activate
+dsh-sideask: import failed: client-modules: duplicate factory registration for
+  "dsh-sideask" (bundle executed twice without invalidate?)
+```
+
+宿主加载器源码（`@deepseek-ai/dsh-client-modules/lib/client.js:700-712`）：
+
+```js
+register(registration) {
+  const id = …;
+  if (this.bootstrapIds.has(id) || this.factories.has(id)) {
+    throw new Error(`client-modules: duplicate factory registration for "${registrationName}" …`);
+  }
+  this.factories.set(id, { factory: registration.factory, … });
+}
+```
+
+本插件当时的 bundle 里存在**两次注册**：
+1. `scripts/build.mjs` 的包装层：`window.__ModuleLoader__.load({ id, factory })`（正确，必须有一次）；
+2. `src/client/index.ts` 顶层又调用了 `window.__ModuleLoader__.load(definition)`——而该文件被 esbuild
+   打进 factory 函数体，于是**工厂执行时又注册一次** → 加载器抛错 → 该 client entry 未激活 →
+   应用判定启动失败并进入“禁用第三方插件”的安全路径。
+
+为什么之前没发现：隔离 home 的冒烟只验证了 `bootstrap` API 与 bundle “能下载”，**从未在浏览器里真正执行**
+bundle 并 materialize factory；而 `scripts/check.mjs` 当时只检查“包含 `__ModuleLoader__.load`”，
+这种 grep 天然抓不到“注册两次”。
+
+### 11.3 修复（v0.1.1）
+
+- 注册只保留构建包装层；`src/client/index.ts` 删除了全部 `__ModuleLoader__` 引用；
+- 工厂返回值改为**插件对象** `module.exports.createPlugin()`（与加载器
+  `exports: registered.factory(require)` 的语义一致）；
+- `scripts/check.mjs` 新增硬断言：bundle 内 `__ModuleLoader__.load(` 出现次数必须**恰好 1 次**，
+  且工厂必须 `return module.exports.createPlugin()`；
+- 新增回归测试 `test/client.bundle.test.mjs`：用 `node:vm` 在假 Module Loader 下**真正执行**
+  `lib/client.js`，断言 ①只注册一次 ②materialize 后不再注册 ③返回的插件含 `name/inject/apply`
+  ④`require` 只出现种子模块 ⑤空 ctx 下 `apply()` 不抛。
+
+### 11.4 回滚（已执行）
+
+1. `profiles/desktop/package.json`、`pnpm-lock.yaml` 用安装前备份覆盖 → `dsh.profile.bundles`
+   恢复为 6 项、依赖恢复为 2 项；
+2. 删除 `node_modules/dsh-sideask` junction（目标源码目录保留）；
+3. 确认无 `dsh-sideask` 残留于 `.pnpm` / node_modules；无持久化的“安全模式”标记文件
+   （禁用状态就是被改写的 bundles 列表本身，已还原）；
+4. 用户重启后应恢复原状（含 cost-meter / spend-wallpaper 等）。
+
+### 11.5 安全启用清单（以后每次启用 client 插件前）
+
+1. `node scripts/build.mjs` → `node scripts/check.mjs`（含“恰好一次注册”断言）；
+2. `node --test`（含 `client.bundle.test.mjs` 真实执行 bundle）；
+3. 在**隔离 `DSH_HOME`** 里先启用并启动 `dsh web`，确认启动无 `did not activate` 警告；
+4. 浏览器打开该实例页面，确认控制台无 `duplicate factory registration`；
+5. 以上全过，再在真实 profile 启用；保留备份，失败按 §11.4 回滚。
+
+> 教训：对 client 插件而言，“bundle 能被下载”不等于“能被执行”。契约必须用**执行**来测，而不是 grep。
+
+
