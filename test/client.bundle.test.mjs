@@ -105,6 +105,10 @@ test('materialising the factory yields a plugin with name/inject/apply', () => {
   assert.equal(typeof plugin.apply, 'function')
   assert.ok(Array.isArray(plugin.inject))
   assert.ok(plugin.inject.includes('slots'), 'must declare the slots dependency')
+  // The host shortcut service rejects Web bindings without `primary` and THROWS;
+  // that throw used to fail web boot. The plugin owns its hotkey instead, so it
+  // must never depend on the host service again.
+  assert.ok(!plugin.inject.includes('shortcuts'), 'must not depend on the host shortcuts service')
 
   // The regression that broke web boot: a registration from inside the factory.
   assert.equal(registrations.length, 1, 'factory execution must NOT register a second factory')
@@ -135,4 +139,47 @@ test('apply() tolerates a bare context (no services at all)', () => {
   plugin.apply(bareContext)
   assert.equal(registrations.length, 1)
   for (const dispose of disposers) dispose()
+})
+
+/**
+ * Regression for the second real boot failure: the host shortcut service throws
+ * `Unsupported Web shortcut` for Alt+Shift+A, and that throw propagated out of
+ * apply() and failed web boot. `apply()` must never throw, no matter which
+ * service throws.
+ */
+test('apply() never throws even when every service throws', () => {
+  const { registrations, requireStub } = runBundle()
+  const plugin = registrations[0].factory(requireStub)
+  const hostileContext = {
+    get: () => ({
+      register: () => {
+        throw new Error('Unsupported Web shortcut: side-ask.toggle')
+      },
+      interactions: {
+        register: () => {
+          throw new Error('duplicate interaction id')
+        },
+      },
+      inject: () => {
+        throw new Error('unknown slot')
+      },
+      list: {
+        getSnapshot: () => {
+          throw new Error('catalog unavailable')
+        },
+      },
+    }),
+    effect: (setup) => {
+      try {
+        setup()
+      } catch {
+        // A real cordis effect would surface this; the plugin must already have
+        // contained it.
+      }
+    },
+    inject: () => undefined,
+    provide: () => undefined,
+  }
+  assert.doesNotThrow(() => plugin.apply(hostileContext))
+  assert.equal(registrations.length, 1)
 })

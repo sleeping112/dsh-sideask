@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-11-14
+
+### Fixed
+- **CRITICAL: a rejected hotkey registration broke web boot.** `apply()` called
+  `ctx.shortcuts.register({ id: 'side-ask.toggle', defaults: { 'web:*': Alt+Shift+A } })`.
+  The host shortcut service validates every Web default and **throws**
+  `Unsupported Web shortcut: side-ask.toggle` because a Web binding must have
+  3+ modifiers or include `primary` (Ctrl/⌘)
+  (`dsh-client-shortcuts/lib/client.js:109-1220`). The throw escaped `apply()`,
+  failed the client entry, failed web boot, and the app offered to disable all
+  third-party plugins.
+  - the plugin now owns its hotkey (`src/client/hotkey.ts` + a `keydown`
+    listener), keeping the documented `Alt+Shift+A`; the host shortcuts service
+    is no longer required (removed from `inject`);
+  - **`apply()` can no longer throw**: every optional registration goes through a
+    `safe()` guard, and a top-level catch logs and degrades instead of failing
+    the entry;
+  - list-slot probes now pass `id` (not `key`), which the slot registry requires
+    (`list slot "…" requires options.id`).
+- Added regression tests: `test/client.hotkey.test.mjs` (parse/match/format) and
+  a hostile-context case in `test/client.bundle.test.mjs` where every service
+  throws — `apply()` must still not throw; the bundle test also asserts the
+  plugin no longer injects `shortcuts`.
+
+### Verified
+- Real browser (headless Edge + CDP) against an isolated `dsh web` instance:
+  `boot errors: 0`, `uncaught exceptions: 0`, pill rendered inside the shadow
+  root at the top-right, and `Alt+Shift+A` opens the window.
+
 ## [0.1.2] — 2026-11-14
 
 ### Changed

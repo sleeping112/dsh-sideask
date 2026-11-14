@@ -47,7 +47,7 @@
 | H8 | 选中文本交互（客户端） | `ctx.uiConversation.interactions.register({id, onInteraction})`、`request.readText()` | **[已验证]** | 取用户选中文本作为最高优先级上下文 | `window.getSelection()` 兜底 |
 | H9 | 输入框写入（客户端） | `ctx.conversation.input.for(binding.ctx).actions.insertQuote/setDraft/captureInsertion+insertText` | **[已验证]**（调用路径 **[假设]**） | “引用到主对话/插入引用块/作为草稿” | 复制到剪贴板 + 提示粘贴 |
 | H10 | 覆盖层插槽（客户端） | `ctx.slots.inject('shell.overlay', () => ctx.slots.register({name:'shell.overlay'}, Comp))` | **[已验证]** | 悬浮窗挂载点（`z-index:20` 层） | `createPortal(node, document.body)` 兜底 |
-| H11 | 快捷键（客户端） | `ctx.shortcuts.register({id,label,defaults:{'web:windows':{code,modifiers}},regions,resolve})` | **[已验证]** | 唤起/收起悬浮窗 | `document` 级 keydown 监听兜底 |
+| H11 | 快捷键（客户端） | ~~`ctx.shortcuts.register(...)`~~ → **插件自建 `keydown` 监听**（见 R12）| **[已验证，且已放弃宿主服务]** | 唤起/收起悬浮窗 | 无依赖；不依赖宿主即可用 |
 | H12 | 设置页插槽（客户端，可选） | `ctx.slots.inject('settings.section', …)` | **[已验证]** | 在 dsh 设置里放“旁问”分区 | 只用窗口内设置面板 |
 | H13 | 国际化（可选） | `ctx.locale.register(ns, {zh, en})` | **[已验证]** | 中英文案 | 内置 zh/en 切换 |
 | H14 | 主题变量（可选） | CSS `--dsw-*` 变量（跨 Shadow 边界继承） | **[已验证]** | 与宿主亮/暗主题一致 | 自带 light/dark 变量 + `prefers-color-scheme` |
@@ -868,7 +868,7 @@ const rules = [
 | R9 | 线程存储损坏/只读盘 | 历史丢失 | 低 | 读取 sanitize 失败 | 视为空并自愈；内存态继续工作 |
 | R10 | dsh 版本升级导致 API 漂移 | 插件失效 | 中 | `dsh.compatibility` 版本范围 + 启动探测 | 每项能力 `feature-detect`，缺能力只降级不抛错；`API_MISMATCH` 提示升级 |
 | R11 | 多标签页/多窗口并发写线程 | 覆盖 | 低 | 更新时间戳 | 服务端“先读后写 + 单次请求原子 append”，冲突时后写覆盖（历史可接受） |
-| R12 | 快捷键与宿主冲突 | 唤起失败 | 中 | `ctx.shortcuts` 冲突反馈 | 允许改键；`document` 监听兜底；UI 提示已占用 |
+| R12 | 快捷键与宿主冲突 / 被宿主服务拒绝 | **激活失败 → web boot 失败 → 应用禁用第三方插件**（真实发生，v0.1.2 及以前） | 已发生 | 真机 CDP 验证 | 已改为**插件自建 keydown 监听**：宿主 `ctx.shortcuts` 对 Web 组合有白名单校验（需 3+ 修饰键或含 primary），`Alt+Shift+A` 会被判非法并**抛错**；现在快捷键与宿主解耦，`apply()` 也做了"永不抛错"兜底 |
 | R13 | 引用错配（模型编造 cN） | 误导 | 中 | 未知引用丢弃 + 只回显实际条目 | 已实现丢弃策略；UI 不显示不存在的引用 |
 | R14 | 隐私开关被误关 | 数据外传 | 低 | 设置页显式文案 | 关闭“读上下文”时窗口顶部常驻“上下文已关闭”徽标 |
 

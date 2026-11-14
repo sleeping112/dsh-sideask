@@ -436,4 +436,82 @@ bundle 并 materialize factory；而 `scripts/check.mjs` 当时只检查“包�
 
 > 教训：对 client 插件而言，“bundle 能被下载”不等于“能被执行”。契约必须用**执行**来测，而不是 grep。
 
+---
+
+## 12. 事故二：宿主编译期校验拒绝快捷键，导致 web boot 再次失败（2026-11-14）
+
+### 12.1 现象
+
+启用 v0.1.2 后重启，应用再次进入“禁用第三方插件”的安全路径。日志：
+
+```
+Error: web boot: 1 entry did not activate
+dsh-sideask: failed
+```
+
+（与 §11 不同：这次没有 `duplicate factory registration` 细节，只有 `failed`。）
+
+### 12.2 定位方法（本次新增的能力）
+
+`dsh web` 启动日志与桌面日志都不含原因，于是用**隔离实例 + headless Edge + CDP** 抓浏览器控制台：
+
+```
+node _probe/cdp-check2.mjs http://127.0.0.1:<port>/?token=<token> <cdpPort>
+```
+
+抓到真正的原因：
+
+```
+[dsh-sideask] apply threw: Error: Unsupported Web shortcut: side-ask.toggle
+```
+
+### 12.3 根因
+
+宿主快捷键服务对 Web 组合有白名单（`dsh-client-shortcuts/lib/client.js:109-1220`）：
+
+- 允许：修饰键数量 ≥ 3；或含 `primary`（Windows=Ctrl / macOS=⌘）且另有 alt/shift；或少量固定组合；
+- 其它一律 `throw new Error('Unsupported Web shortcut: <id>')`。
+
+本插件注册的 `Alt+Shift+A`（2 个修饰键、无 primary）**不合法 → 抛错**；抛错发生在 `apply()` 内
+→ 该 client entry 激活失败 → web boot 失败 → 应用判定第三方插件故障并禁用整个列表。
+
+### 12.4 修复（v0.1.3）
+
+1. **快捷键自有化**：新增 `src/client/hotkey.ts`（解析/匹配/格式化，纯函数 + 单测），
+   用 `window.keydown` 监听实现 `Alt+Shift+A`；不再依赖 `ctx.shortcuts`，也不再出现在 `inject` 里；
+2. **`apply()` 永不抛错**：所有可选注册走 `safe(label, run)` 包装（失败只 `console.warn` 并降级），
+   最外层再兜一层 `try/catch`，保证任何服务异常都不会让 web boot 失败；
+3. **list 插槽 id**：会话探针注册改用 `id`（宿主报 `list slot "…" requires options.id`），消除了 2 条降级告警。
+
+### 12.5 真机验证（隔离实例 + 真实浏览器）
+
+```
+PILL PROBE { host: true, shadow: true, pill: true, pillText: '旁问',
+             pillRect: { left: 422, top: 18, right: 482, bottom: 53 },
+             viewport: { width: 500, height: 320 },
+             debugHandle: true, bootFailed: false }
+HOTKEY PROBE { window: true, rect: { left: 132, top: 24, width: 350, height: 320 } }
+sideask console lines: 0
+boot errors: 0
+uncaught exceptions: 0
+```
+
+即：插件激活成功、悬浮球渲染在 shadow root 内且位于**右上角**（距右边 18px、距顶 18px）、
+`Alt+Shift+A` 能打开小窗、没有任何 boot 错误与未捕获异常。
+
+### 12.6 复现命令
+
+```powershell
+# 隔离实例
+$env:DSH_HOME='E:\workspace\_probe\dshhome-sideask-verify'; $env:ELECTRON_RUN_AS_NODE='1'
+& 'D:\deepseek\resources\runtime\cli\bin\dsh.cmd' --profile web --port 0 --no-open
+# 记下 http://127.0.0.1:<port>/?token=<token>
+
+# 无头浏览器 + CDP（另开一个终端）
+& 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' --headless=new --disable-gpu `
+    --user-data-dir=E:\workspace\_probe\edge-cdp --remote-debugging-port=9334 "<上面的URL>"
+node _probe\cdp-check2.mjs "<上面的URL>" 9334
+```
+
+
 
