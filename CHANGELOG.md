@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] — 2026-11-15
+
+### Fixed
+- **`MISSING_CREDENTIAL` on the first question**: the plugin resolved the *global
+  default model* (`deepseek-official`, an API-key route) while the user's
+  conversation was running on the signed-in account route (`deepseek-account`),
+  which is why the main chat worked and the side thread did not.
+  - the client now extracts the conversation's current model from the last
+    assistant message (`source: { provider, model }` — routing metadata only, no
+    content) and sends it as `AskRequest.routeHint`;
+  - the host builds an ordered candidate list — explicit config → route hint →
+    global default → every other registered provider with a known model — and
+    retries only on `NO_ADAPTER` / `MISSING_CREDENTIAL` / `AUTH` failures that
+    happened **before any token**, so streamed text is never duplicated;
+  - credential failures now carry an actionable message (use the conversation's
+    model, change the host default, or set `provider`/`model` in the plugin).
+- Tests: `test/host.routing.test.mjs` (hint priority, config priority, fallback
+  queue, de-duplication, broken services) and `lastRouteHint` cases in
+  `test/client.transcript.test.mjs`. 153 tests total.
+
 ## [0.1.3] — 2026-11-14
 
 ### Fixed

@@ -149,6 +149,13 @@ export interface AskRequest {
   context: ContextBundle | null
   /** Main session this question was asked beside; advisory thread metadata. */
   sessionId?: string
+  /**
+   * Provider/model the main conversation is currently using, extracted from the
+   * last assistant message. Routing metadata only (no conversation content).
+   * The host prefers it over the global default so a side question is answered
+   * by the same model the user is already talking to.
+   */
+  routeHint?: { provider: string; model: string }
   settings?: Partial<SideAskSettings>
 }
 

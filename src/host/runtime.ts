@@ -30,7 +30,15 @@ import { buildPrompt } from '../shared/prompt.js'
 import { redact } from '../shared/redact.js'
 import { MESSAGE_OVERHEAD_TOKENS, estimateTokens } from '../shared/tokens.js'
 import { readConfig, toSettings, type HostConfig } from './config.js'
-import { callModel, listProviderIds, resolveRoute, type DefaultModelService, type LlmService } from './llm.js'
+import {
+  callModel,
+  candidateRoutes,
+  listProviderIds,
+  type CallResult,
+  type DefaultModelService,
+  type LlmService,
+  type RouteHint,
+} from './llm.js'
 import { ThreadStore, resolveDshHome, threadsFilePath } from './store.js'
 
 /** The slice of the cordis context this plugin actually uses. */
@@ -232,6 +240,33 @@ export function sanitizeBundle(raw: unknown, config: HostConfig): ContextBundle 
   }
 }
 
+/** Validate a client-supplied route hint (routing metadata only). */
+function readRouteHint(value: unknown): RouteHint | null {
+  if (value === null || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const provider = asString(record['provider'], 200)
+  const model = asString(record['model'], 200)
+  if (provider === null || provider.length === 0) return null
+  if (model === null || model.length === 0) return null
+  return { provider, model }
+}
+
+/**
+ * Make credential failures actionable.
+ *
+ * The plain provider message ("no API key for provider route …") does not tell
+ * the user what to do next. In this plugin the usual cause is that the host's
+ * *global default model* points at an API-key route while the conversation runs
+ * on an account route, so the hint points at both ways out.
+ */
+function decorateCredentialFailure(error: SideAskError): SideAskError {
+  if (error.code !== 'MISSING_CREDENTIAL') return error
+  return {
+    ...error,
+    message: `${error.message}（旁问会优先沿用主对话当前使用的模型；也可在 dsh 设置里换默认模型，或在插件配置中指定 provider/model）`,
+  }
+}
+
 // ------------------------------------------------------------------ runtime
 
 export class SideAskRuntime {
@@ -288,13 +323,17 @@ export class SideAskRuntime {
   bootstrap(): BootstrapResponse {
     const config = this.config()
     const llm = this.llm()
-    const route = resolveRoute(config, llm, this.defaultModel())
+    const candidates = candidateRoutes(config, llm, this.defaultModel(), null)
+    const first = candidates[0]
     return {
       apiVersion: API_VERSION,
       settings: config,
-      model: 'error' in route ? null : { provider: route.provider, model: route.model },
+      model: first === undefined ? null : { provider: first.provider, model: first.model },
       providers: listProviderIds(llm),
-      unavailable: 'error' in route ? route.error : null,
+      unavailable:
+        first === undefined
+          ? makeError('NO_ADAPTER', '没有可用的模型路由：请在插件设置里指定 provider/model，或在宿主里选一个默认模型')
+          : null,
     }
   }
 
@@ -380,13 +419,19 @@ export class SideAskRuntime {
 
     // ---- route + privacy gate -------------------------------------------
     const llm = this.llm()
-    const route = resolveRoute(config, llm, this.defaultModel())
-    if ('error' in route) {
-      yield fail(route.error)
-      return
-    }
     if (llm === undefined) {
       yield fail(makeError('NO_ADAPTER', '宿主未提供模型服务'))
+      return
+    }
+    const hint = readRouteHint(body.routeHint)
+    const candidates = candidateRoutes(config, llm, this.defaultModel(), hint)
+    if (candidates.length === 0) {
+      yield fail(
+        makeError(
+          'NO_ADAPTER',
+          '没有可用的模型路由：请在插件设置里指定 provider/model，或在宿主里选一个默认模型',
+        ),
+      )
       return
     }
 
@@ -436,24 +481,55 @@ export class SideAskRuntime {
     const queue = new AsyncQueue<AskEvent>()
     const producer = (async (): Promise<void> => {
       try {
-        const result = await callModel(
-          llm,
-          { provider: route.provider, model: route.model },
-          {
-            instruction: prompt.system,
-            body: prompt.user,
-            signal: controller.signal,
-            maxTokens: config.answerMaxTokens,
-            temperature: config.temperature,
-          },
-          (delta) => queue.push({ type: 'delta', requestId, text: delta }),
-        )
+        // Walk the candidate routes. Retrying is only allowed when the failure
+        // happened before any token (NO_ADAPTER / MISSING_CREDENTIAL / AUTH), so
+        // streamed text can never be duplicated or replayed.
+        let result: CallResult | null = null
+        let lastFailure: SideAskError | null = null
+        for (const candidate of candidates) {
+          let producedDelta = false
+          result = await callModel(
+            llm,
+            { provider: candidate.provider, model: candidate.model },
+            {
+              instruction: prompt.system,
+              body: prompt.user,
+              signal: controller.signal,
+              maxTokens: config.answerMaxTokens,
+              temperature: config.temperature,
+            },
+            (delta) => {
+              producedDelta = true
+              queue.push({ type: 'delta', requestId, text: delta })
+            },
+          )
+          if (result.failure === null) {
+            lastFailure = null
+            break
+          }
+          lastFailure = result.failure
+          const retryableRoute =
+            !producedDelta &&
+            (result.failure.code === 'MISSING_CREDENTIAL' ||
+              result.failure.code === 'NO_ADAPTER' ||
+              result.failure.code === 'AUTH')
+          if (!retryableRoute) break
+        }
+
+        if (result === null) {
+          queue.push({
+            type: 'error',
+            requestId,
+            error: lastFailure ?? makeError('NO_ADAPTER', '没有可用的模型路由'),
+          })
+          return
+        }
 
         if (result.failure !== null) {
           const error =
             result.failure.code === 'ABORTED' && timedOut
               ? makeError('TIMEOUT', '模型调用超时')
-              : result.failure
+              : decorateCredentialFailure(result.failure)
           this.store.append(threadId, {
             id: newMessageId('m'),
             role: 'assistant',

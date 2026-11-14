@@ -306,6 +306,10 @@ export class SideAskStore {
     })
 
     try {
+      // Reuse the main conversation's current model route. This is metadata, not
+      // content, so it is sent even when context reading is off — otherwise a
+      // global default on an uncredentialed route would break every question.
+      const routeHint = this.deps.contextSource.routeHint()
       await this.deps.api.ask({
         request: {
           requestId,
@@ -313,6 +317,7 @@ export class SideAskStore {
           question: text,
           context: bundle,
           ...(state.sessionId === null ? {} : { sessionId: state.sessionId }),
+          ...(routeHint === null ? {} : { routeHint }),
         },
         signal: controller.signal,
         onEvent: (event: AskEvent) => this.handleEvent(event),

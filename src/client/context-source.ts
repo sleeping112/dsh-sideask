@@ -18,7 +18,7 @@
 import type { ChatMessage, ContextBundle, ContextSelection, SideAskSettings } from '../shared/contract.js'
 import { ProjectionCache, buildContext, buildQuestionOnlyBundle } from '../shared/context.js'
 import type { SessionsService, SessionBinding } from './types.js'
-import { entriesToMessages, projectIncrementally } from './transcript.js'
+import { entriesToMessages, lastRouteHint, projectIncrementally } from './transcript.js'
 
 export interface ContextSourceOptions {
   sessions: SessionsService | undefined
@@ -104,6 +104,17 @@ export class ContextSource {
   /** Messages currently readable from the bound session (no budget applied). */
   messages(): ChatMessage[] {
     return entriesToMessages(this.entries)
+  }
+
+  /**
+   * Provider/model the main conversation is using.
+   *
+   * Routing metadata only — no message text — so it is safe to send even when
+   * the user turned context reading off; without it the host falls back to the
+   * global default model, which may be a route without credentials.
+   */
+  routeHint(): { provider: string; model: string } | null {
+    return lastRouteHint(this.entries)
   }
 
   setSelection(note: SelectionNote | null): void {

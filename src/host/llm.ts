@@ -75,53 +75,82 @@ export interface RouteInfo {
   provider: string
   model: string
   /** How the route was chosen, for diagnostics. */
-  source: 'config' | 'default-model' | 'first-provider'
+  source: 'config' | 'route-hint' | 'default-model' | 'first-provider'
+}
+
+/** Provider/model the main conversation is using, when the client could read it. */
+export interface RouteHint {
+  provider: string
+  model: string
 }
 
 /**
- * Resolve the provider/model pair for a side-ask call.
+ * Ordered candidate routes for one call.
  *
- * Order: explicit plugin config → host default model selection → first
- * registered provider (with an empty model, which the adapter may reject; the
- * caller then surfaces `NO_ADAPTER`). Empty config is the normal case.
+ * Order matters and encodes the policy:
+ * 1. explicit plugin config (the user said so);
+ * 2. **the model the main conversation is using** — a side question should be
+ *    answered by the same route the user is already talking to, and that route
+ *    is known to be credentialed;
+ * 3. the host's global default model selection;
+ * 4. any other registered provider paired with a known model.
+ *
+ * The runtime walks this list and only advances on adapter-shaped failures
+ * (`NO_ADAPTER`, `MISSING_CREDENTIAL`, `AUTH`) that happened before any token
+ * was produced, so a retry can never duplicate streamed text.
  */
-export function resolveRoute(
+export function candidateRoutes(
   config: { provider: string; model: string },
   llm: LlmService | undefined,
   defaultModel: DefaultModelService | undefined,
-): RouteInfo | { error: SideAskError } {
-  if (llm === undefined) {
-    return { error: makeError('NO_ADAPTER', '宿主未提供模型服务（ctx.llm 不可用）') }
-  }
-  if (config.provider.length > 0 && config.model.length > 0) {
-    return { provider: config.provider, model: config.model, source: 'config' }
+  hint?: RouteHint | null,
+): RouteInfo[] {
+  const routes: RouteInfo[] = []
+  const push = (provider: string | undefined, model: string | undefined, source: RouteInfo['source']): void => {
+    if (typeof provider !== 'string' || provider.length === 0) return
+    if (typeof model !== 'string' || model.length === 0) return
+    if (routes.some((route) => route.provider === provider && route.model === model)) return
+    routes.push({ provider, model, source })
   }
 
+  push(config.provider, config.model, 'config')
+  if (hint !== undefined && hint !== null) push(hint.provider, hint.model, 'route-hint')
+
+  let defaultSelection: { provider: string; model: string } | null = null
   if (defaultModel !== undefined) {
     try {
       const selection = defaultModel.currentSelection()
       if (selection.provider.length > 0 && selection.model.length > 0) {
-        return { provider: selection.provider, model: selection.model, source: 'default-model' }
+        defaultSelection = { provider: selection.provider, model: selection.model }
+        push(selection.provider, selection.model, 'default-model')
       }
     } catch {
       // Fall through to provider discovery.
     }
   }
 
-  let providers: LlmProviderInfo[] = []
-  try {
-    providers = llm.listProviders()
-  } catch {
-    providers = []
+  // Last resort: every other registered provider paired with a model we know of.
+  const fallbackModel = config.model.length > 0 ? config.model : hint?.model ?? defaultSelection?.model ?? ''
+  for (const providerId of listProviderIds(llm)) push(providerId, fallbackModel, 'first-provider')
+  return routes
+}
+
+/**
+ * Resolve the single best provider/model pair (bootstrap/diagnostics).
+ * The full retry policy lives in `candidateRoutes`.
+ */
+export function resolveRoute(
+  config: { provider: string; model: string },
+  llm: LlmService | undefined,
+  defaultModel: DefaultModelService | undefined,
+  hint?: RouteHint | null,
+): RouteInfo | { error: SideAskError } {
+  if (llm === undefined) {
+    return { error: makeError('NO_ADAPTER', '宿主未提供模型服务（ctx.llm 不可用）') }
   }
-  const first = providers[0]
-  const providerId = first === undefined ? undefined : (first.id ?? first.provider)
-  if (typeof providerId === 'string' && providerId.length > 0 && config.model.length > 0) {
-    return { provider: providerId, model: config.model, source: 'first-provider' }
-  }
-  if (typeof providerId === 'string' && providerId.length > 0 && config.provider.length > 0) {
-    return { provider: config.provider, model: config.model, source: 'config' }
-  }
+  const candidates = candidateRoutes(config, llm, defaultModel, hint)
+  const first = candidates[0]
+  if (first !== undefined) return first
   return {
     error: makeError(
       'NO_ADAPTER',

@@ -141,3 +141,30 @@ export function hashMessage(message: ChatMessage): string {
   }
   return (hash >>> 0).toString(36)
 }
+
+/**
+ * Find the provider/model the main conversation is currently using.
+ *
+ * Read from the newest assistant message's `source` (`{ kind: 'model', provider,
+ * model }`). This is routing metadata, not conversation content: it lets the
+ * side thread reuse the same model the user is already talking to instead of the
+ * global default, which may point at a provider route without credentials.
+ */
+export function lastRouteHint(entries: unknown): { provider: string; model: string } | null {
+  if (!Array.isArray(entries)) return null
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index] as SessionEntry | null
+    if (entry === null || typeof entry !== 'object') continue
+    const event = entry.event
+    if (event === undefined || event === null || event.type !== 'assistant/message') continue
+    const data = (event.data ?? {}) as Record<string, unknown>
+    const message = (data['message'] ?? {}) as Record<string, unknown>
+    const source = (message['source'] ?? {}) as Record<string, unknown>
+    const provider = source['provider']
+    const model = source['model']
+    if (typeof provider === 'string' && provider.length > 0 && typeof model === 'string' && model.length > 0) {
+      return { provider, model }
+    }
+  }
+  return null
+}

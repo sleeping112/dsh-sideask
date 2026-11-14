@@ -5,6 +5,7 @@ import {
   entriesToMessages,
   entryToMessage,
   hashMessage,
+  lastRouteHint,
   projectIncrementally,
   textOfContent,
 } from '../lib/client/transcript.js'
@@ -89,4 +90,40 @@ test('hashMessage is stable and content-sensitive', () => {
   assert.equal(hashMessage(message), hashMessage({ ...message }))
   assert.notEqual(hashMessage(message), hashMessage({ ...message, text: 'y' }))
   assert.notEqual(hashMessage(message), hashMessage({ ...message, role: 'assistant' }))
+})
+
+const assistantWithSource = (id, provider, model, seq = 5) => ({
+  event: {
+    type: 'assistant/message',
+    seq,
+    data: {
+      message: {
+        id,
+        content: [{ type: 'text', text: 'answer' }],
+        source: { kind: 'model', provider, model },
+      },
+    },
+  },
+})
+
+test('lastRouteHint reads the newest assistant message source', () => {
+  const entries = [
+    assistantWithSource('a1', 'deepseek-official', 'deepseek-flash', 1),
+    assistantWithSource('a2', 'deepseek-account', 'deepseek-flash', 2),
+    { event: { type: 'user/message', seq: 3, data: { id: 'u1', content: [{ type: 'text', text: 'hi' }] } } },
+  ]
+  assert.deepEqual(lastRouteHint(entries), { provider: 'deepseek-account', model: 'deepseek-flash' })
+})
+
+test('lastRouteHint returns null when no assistant message carries a model source', () => {
+  assert.equal(lastRouteHint([]), null)
+  assert.equal(lastRouteHint(null), null)
+  assert.equal(
+    lastRouteHint([{ event: { type: 'assistant/message', data: { message: { id: 'a', content: [{ type: 'text', text: 'x' }] } } } }]),
+    null,
+  )
+  assert.equal(
+    lastRouteHint([{ event: { type: 'assistant/message', data: { message: { id: 'a', source: { provider: 'p' } } } } }]),
+    null,
+  )
 })
