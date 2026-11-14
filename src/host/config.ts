@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Plugin configuration: schemastery schema + a normalised reader.
  *
  * Verified host behaviours this file depends on (see docs/research/host-api.md):
@@ -46,7 +46,7 @@ export const Config = z.object({
   readContext: z.boolean().default(true).volatile(),
   redactSensitive: z.boolean().default(true).volatile(),
   persistHistory: z.boolean().default(true).volatile(),
-  defaultCorner: z.union(['top-left', 'top-right', 'bottom-left', 'bottom-right']).default('bottom-right').volatile(),
+  defaultCorner: z.union(['top-left', 'top-right', 'bottom-left', 'bottom-right']).default('top-right').volatile(),
   hotkey: z.string().default(DEFAULT_HOTKEY).volatile(),
   customRedactionPatterns: z.array(z.string()).default([]).volatile(),
   historyTurns: z.number().min(0).max(40).default(8).volatile(),
@@ -90,7 +90,7 @@ export function readConfig(raw: unknown): HostConfig {
   const source = (raw ?? {}) as Record<string, unknown>
   const value = (key: string): unknown => unwrap(source[key])
 
-  const corner = str(value('defaultCorner'), 'bottom-right') as DockCorner
+  const corner = str(value('defaultCorner'), 'top-right') as DockCorner
   const hotkey = str(value('hotkey'), DEFAULT_HOTKEY).trim()
   const patterns = value('customRedactionPatterns')
 
@@ -107,7 +107,7 @@ export function readConfig(raw: unknown): HostConfig {
     readContext: bool(value('readContext'), true),
     redactSensitive: bool(value('redactSensitive'), true),
     persistHistory: bool(value('persistHistory'), true),
-    defaultCorner: CORNERS.includes(corner) ? corner : 'bottom-right',
+    defaultCorner: CORNERS.includes(corner) ? corner : 'top-right',
     hotkey: hotkey.length > 0 && hotkey.length <= 40 ? hotkey : DEFAULT_HOTKEY,
     customRedactionPatterns: Array.isArray(patterns)
       ? patterns.filter((entry): entry is string => typeof entry === 'string').slice(0, 16)

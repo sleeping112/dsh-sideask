@@ -364,7 +364,7 @@ data: {"type":"done","requestId":"r1","messageId":"m_...","text":"…","citation
 | `readContext` | bool | true | **隐私开关**：关掉后不读主对话 |
 | `redactSensitive` | bool | true | 敏感信息脱敏（双端） |
 | `persistHistory` | bool | true | 轻对话历史是否落盘 |
-| `defaultCorner` | 4 角枚举 | bottom-right | 悬浮窗默认位置 |
+| `defaultCorner` | 4 角枚举 | top-right | 悬浮球与悬浮窗的默认停靠角 |
 | `hotkey` | string | `Alt+Shift+A` | 唤起快捷键 |
 | `customRedactionPatterns` | string[] | [] | 自定义脱敏正则 |
 | `historyTurns` | 0–40 | 8 | 内嵌的历史旁问轮数 |
@@ -498,7 +498,7 @@ prompt → ctx.llm.stream
 
 ### 7.1 悬浮入口与窗口
 
-- **入口**：右下角 42px 圆形悬浮球（可配置角），带未读/流式小圆点；点击或快捷键展开。
+- **入口**：默认右上角 42px 圆形悬浮球（`defaultCorner` 可配 4 角），带未读/流式小圆点；点击或快捷键展开。球的位置跟随停靠角：窗口被拖动/吸附到哪个角，收起后的球就在哪个角。
 - **窗口**：默认 380×520（min 300×320，max 70vw×80vh），圆角 14px，`backdrop-filter` 磨砂，边框/背景取 `--dsw-*` 变量 + 兜底值。
 - **拖拽**：按住标题栏拖动（`setPointerCapture`，拖动时 `user-select:none`），松手距边 <24px 吸附到对应角。
 - **吸附/记忆**：`localStorage['dsh-sideask.window.v1'] = {corner,x,y,w,h,minimized,collapsed,contextOn}`；刷新恢复。
@@ -840,7 +840,7 @@ const rules = [
 
 ### 10.3 手工验收脚本（10 分钟）
 
-1. 装好并打开主对话 → 右下角出现悬浮球；`Alt+Shift+A` 展开/收起；拖动到左上角松手吸附；刷新后位置保持。
+1. 装好并打开主对话 → 右上角出现悬浮球；`Alt+Shift+A` 展开/收起；拖动到其它角松手吸附；刷新后位置保持。
 2. 问一个**只有看上下文才能答**的问题（如“上面那段代码里我改了什么？”）→ 回答带 `cN` 引用 chip；点 chip 能看到原文摘录。
 3. 关闭“带上上下文”重问 → 回答明确说缺少上下文；请求里无对话内容（DevTools Network 可验证）。
 4. 关闭 `readContext` 重问 → host 返回 `question-only` 模式，prompt 不含 transcript（harness 断言）。

@@ -14,6 +14,7 @@ import {
   computePosition,
   defaultState,
   fromPosition,
+  pillStyle,
   release,
   restore,
   serialize,
@@ -22,6 +23,19 @@ import {
 } from '../lib/client/window-state.js'
 
 const VIEWPORT = { width: 1200, height: 800 }
+
+test('defaultState uses the top-right corner by default', () => {
+  assert.equal(defaultState().corner, 'top-right')
+  assert.equal(restore(null, VIEWPORT).corner, 'top-right')
+})
+
+test('pillStyle anchors the pill at each corner with the configured margin', () => {
+  assert.deepEqual(pillStyle('top-left'), { top: 18, left: 18 })
+  assert.deepEqual(pillStyle('top-right'), { top: 18, right: 18 })
+  assert.deepEqual(pillStyle('bottom-left'), { bottom: 18, left: 18 })
+  assert.deepEqual(pillStyle('bottom-right'), { bottom: 18, right: 18 })
+  assert.deepEqual(pillStyle('top-right', 8), { top: 8, right: 8 })
+})
 
 test('defaultState sits in the bottom-right corner', () => {
   const state = defaultState('bottom-right')
@@ -119,7 +133,7 @@ test('toggleMinimized and toggleCollapsed are mutually exclusive', () => {
 
 test('serialize/restore round-trips and survives corrupt values', () => {
   const state = { ...defaultState('top-right'), x: 40, y: 50, width: 360, height: 420, collapsed: true }
-  assert.equal(WINDOW_STORAGE_KEY, 'dsh-sideask.window.v1')
+  assert.equal(WINDOW_STORAGE_KEY, 'dsh-sideask.window.v2')
   const restored = restore(serialize(state), VIEWPORT)
   assert.equal(restored.corner, 'top-right')
   assert.equal(restored.width, 360)
@@ -131,6 +145,15 @@ test('serialize/restore round-trips and survives corrupt values', () => {
     assert.equal(fallback.corner, 'bottom-left')
     assert.ok(fallback.width >= MIN_WIDTH)
   }
+})
+
+test('a stale v1 record is ignored so the configured default applies', () => {
+  // v1 wrote the initial geometry on mount; honouring it would pin the old
+  // default corner forever. v2 requires `schema: 2`.
+  const stale = JSON.stringify({ corner: 'bottom-right', x: 18, y: 18, width: 380, height: 520 })
+  assert.equal(restore(stale, VIEWPORT).corner, 'top-right')
+  const current = { ...defaultState('bottom-left') }
+  assert.equal(restore(serialize(current), VIEWPORT).corner, 'bottom-left')
 })
 
 test('restore clamps a saved position that no longer fits the viewport', () => {

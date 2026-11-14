@@ -13,7 +13,16 @@
 
 import type { DockCorner } from '../shared/contract.js'
 
-export const WINDOW_STORAGE_KEY = 'dsh-sideask.window.v1'
+/**
+ * Storage key for the remembered geometry.
+ *
+ * Bumped to v2 together with the `schema` field: v1 wrote the *initial* geometry
+ * on first mount, so a default corner could be pinned forever. v2 only writes
+ * after the user actually moves/resizes/collapses the window, and a stored value
+ * without `schema: 2` is ignored (one-time migration to the configured default).
+ */
+export const WINDOW_STORAGE_KEY = 'dsh-sideask.window.v2'
+export const WINDOW_STORAGE_SCHEMA = 2
 
 export const MIN_WIDTH = 300
 export const MIN_HEIGHT = 320
@@ -22,6 +31,27 @@ export const MAX_HEIGHT_RATIO = 0.8
 export const SNAP_DISTANCE = 24
 export const DEFAULT_WIDTH = 380
 export const DEFAULT_HEIGHT = 520
+/** Margin (px) between the entrance pill and the viewport edges. */
+export const PILL_MARGIN = 18
+
+/**
+ * CSS offsets for the floating entrance pill at a given corner.
+ *
+ * The pill is not a window: it has no remembered geometry of its own, it just
+ * sits at the corner the window is docked to (or at `defaultCorner` before the
+ * window has ever moved). Keeping this pure makes "where is the ball" testable
+ * instead of hard-coded to one corner in the view.
+ */
+export function pillStyle(corner: DockCorner, margin = PILL_MARGIN): {
+  left?: number
+  right?: number
+  top?: number
+  bottom?: number
+} {
+  const vertical = corner === 'top-left' || corner === 'top-right' ? { top: margin } : { bottom: margin }
+  const horizontal = corner === 'top-left' || corner === 'bottom-left' ? { left: margin } : { right: margin }
+  return { ...vertical, ...horizontal }
+}
 
 export interface WindowGeometry {
   width: number
@@ -51,7 +81,7 @@ export interface Point {
 
 export const CORNERS: DockCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 
-export function defaultState(corner: DockCorner = 'bottom-right'): WindowState {
+export function defaultState(corner: DockCorner = 'top-right'): WindowState {
   return {
     corner,
     x: 18,
@@ -201,6 +231,7 @@ export function focusOnly(state: WindowState): WindowState {
 /** Persist/restore. Never throws: a corrupted value falls back to defaults. */
 export function serialize(state: WindowState): string {
   return JSON.stringify({
+    schema: WINDOW_STORAGE_SCHEMA,
     corner: state.corner,
     x: state.x,
     y: state.y,
@@ -211,12 +242,16 @@ export function serialize(state: WindowState): string {
   })
 }
 
-export function restore(raw: string | null | undefined, viewport: Viewport, fallbackCorner: DockCorner = 'bottom-right'): WindowState {
+export function restore(raw: string | null | undefined, viewport: Viewport, fallbackCorner: DockCorner = 'top-right'): WindowState {
   const base = defaultState(fallbackCorner)
   if (typeof raw !== 'string' || raw.length === 0) return clampOffset(base, viewport)
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>
     if (parsed === null || typeof parsed !== 'object') return clampOffset(base, viewport)
+    // A v1 record (no schema) is ignored on purpose: v1 pinned the initial
+    // default corner on first mount, so honouring it would defeat the configured
+    // default. This is the one-time migration.
+    if (parsed['schema'] !== WINDOW_STORAGE_SCHEMA) return clampOffset(base, viewport)
     const state: WindowState = {
       corner: isCorner(parsed['corner']) ? parsed['corner'] : fallbackCorner,
       x: num(parsed['x'], base.x, 0, Math.max(0, viewport.width)),

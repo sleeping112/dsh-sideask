@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-11-14
+
+### Changed
+- **Default dock corner is now `top-right`** (was `bottom-right`), so the
+  floating entrance pill and the window start in the top-right corner.
+  Configurable via `defaultCorner` (`top-left` / `top-right` / `bottom-left` /
+  `bottom-right`).
+- The entrance pill now honours the docked corner instead of being hard-coded to
+  the bottom-right; it follows whichever corner the window was dragged to.
+
+### Fixed
+- **Remembered geometry no longer pins the initial default.** v0.1.1 wrote the
+  default geometry to localStorage on first mount, so changing `defaultCorner`
+  afterwards appeared to do nothing. Geometry is now only persisted after the
+  user drags, resizes, collapses or minimizes the window, and the storage key was
+  bumped to `dsh-sideask.window.v2` (a stored record without `schema: 2` is
+  ignored, which migrates old installs to the configured default once).
+
 ## [0.1.1] — 2026-11-13
 
 ### Fixed

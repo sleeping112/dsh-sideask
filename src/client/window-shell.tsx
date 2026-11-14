@@ -31,6 +31,7 @@ import {
   defaultState,
   focusOnly,
   fromPosition,
+  pillStyle,
   release,
   restore,
   serialize,
@@ -78,11 +79,29 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   const [detailsOpen, setDetailsOpen] = useState(false)
   const dragRef = useRef<{ start: Point; origin: WindowState } | null>(null)
   const resizeRef = useRef<{ start: Point; left: number; top: number } | null>(null)
+  /**
+   * Only remember geometry after the user actually moved/resized/collapsed the
+   * window. Writing the initial default on mount would pin it forever and hide
+   * later changes to `defaultCorner`.
+   */
+  const touched = useRef(false)
+  const markTouched = useCallback(() => {
+    touched.current = true
+  }, [])
 
-  // Persist geometry whenever it settles (cheap: one small localStorage write).
   useEffect(() => {
-    saveWindow(geometry)
+    if (touched.current) saveWindow(geometry)
   }, [geometry])
+
+  // The window mounts before `bootstrap` returns, so its first corner comes from
+  // the local fallback. Once the host's real `defaultCorner` arrives (and the
+  // user has not moved the window yet), follow it.
+  useEffect(() => {
+    if (touched.current) return
+    setGeometry((current) =>
+      current.corner === settings.defaultCorner ? current : clampOffset({ ...current, corner: settings.defaultCorner }, viewportOf()),
+    )
+  }, [settings.defaultCorner])
 
   // Keep the window inside the viewport on resize/orientation change.
   useEffect(() => {
@@ -143,9 +162,10 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
       if (drag === null) return
       const viewport = viewportOf()
       const position = computePosition(geometry, viewport)
+      markTouched()
       setGeometry(release(drag.origin, position.left, position.top, viewport))
     },
-    [geometry],
+    [geometry, markTouched],
   )
 
   const onResizePointerDown = useCallback(
@@ -176,6 +196,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
 
   const onResizePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     resizeRef.current = null
+    markTouched()
     try {
       event.currentTarget.releasePointerCapture(event.pointerId)
     } catch {
@@ -190,16 +211,18 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
     state.sessionId === null ? '未绑定对话' : state.sessionTitle ?? `对话 ${state.sessionId.slice(0, 8)}`
 
   // Closed (or minimized): the floating entrance pill. Everything else about the
-  // thread is preserved, so reopening never loses the conversation.
+  // thread is preserved, so reopening never loses the conversation. The pill
+  // follows the docked corner (default: the configured `defaultCorner`).
   if (!state.open || geometry.minimized) {
     return (
       <div className="sa-root">
         <div
           className="sa-pill"
-          style={{ right: 18, bottom: 18 }}
+          style={pillStyle(geometry.corner)}
           data-testid="sideask-pill"
           onClick={() => {
             store.setOpen(true)
+            markTouched()
             setGeometry((current) => focusOnly(current))
           }}
           title={`${sessionLabel} · 点击展开（${settings.hotkey}）`}
@@ -227,7 +250,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
           onPointerDown={onHeadPointerDown}
           onPointerMove={onHeadPointerMove}
           onPointerUp={onHeadPointerUp}
-          onDoubleClick={() => setGeometry((current) => toggleCollapsed(current))}
+          onDoubleClick={() => { markTouched(); setGeometry((current) => toggleCollapsed(current)) }}
           title="拖动移动；双击折叠"
         >
           <span className="sa-dot" data-busy={streaming || state.extracting} />
@@ -248,7 +271,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             type="button"
             className="sa-iconbtn"
             title={geometry.collapsed ? '展开' : '折叠'}
-            onClick={() => setGeometry((current) => toggleCollapsed(current))}
+            onClick={() => { markTouched(); setGeometry((current) => toggleCollapsed(current)) }}
           >
             {geometry.collapsed ? '▾' : '▴'}
           </button>
@@ -256,7 +279,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             type="button"
             className="sa-iconbtn"
             title="最小化"
-            onClick={() => setGeometry((current) => toggleMinimized(current))}
+            onClick={() => { markTouched(); setGeometry((current) => toggleMinimized(current)) }}
           >
             –
           </button>

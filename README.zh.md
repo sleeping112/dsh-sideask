@@ -62,7 +62,7 @@ $env:ELECTRON_RUN_AS_NODE=1
 
 | 动作 | 操作 |
 |---|---|
-| 打开/收起 | `Alt+Shift+A` 或点右下角悬浮球 |
+| 打开/收起 | `Alt+Shift+A` 或点右上角悬浮球 |
 | 提问 | 输入后 `Enter`（`Shift+Enter` 换行） |
 | 带上上下文 | 底部开关「带上主对话上下文」（显示 `1.2k/3k token`） |
 | 用选中文本提问 | 在主对话选中文本 → 点选区旁「旁问」 |
@@ -84,7 +84,7 @@ $env:ELECTRON_RUN_AS_NODE=1
 | `contextBudgetTokens` | `3000` | 上下文 token 预算上限 |
 | `autoSummary` | `true` | 历史摘要层（P1 生效） |
 | `answerMaxTokens` | `1200` | 回答长度上限 |
-| `defaultCorner` | `bottom-right` | 悬浮窗默认角 |
+| `defaultCorner` | `top-right` | 悬浮球与悬浮窗的默认停靠角 |
 | `hotkey` | `Alt+Shift+A` | 唤起快捷键 |
 | `provider` / `model` | `''` | 留空 = 用宿主默认模型 |
 | `customRedactionPatterns` | `[]` | 自定义脱敏正则 |

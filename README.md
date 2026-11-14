@@ -84,7 +84,7 @@ Host settings page (schemastery `Config`; rendering by the plugin manager is **a
 | `contextBudgetTokens` | `3000` | Hard context token budget |
 | `autoSummary` | `true` | History summary layer (active in P1) |
 | `answerMaxTokens` | `1200` | Answer length cap |
-| `defaultCorner` | `bottom-right` | Default dock corner |
+| `defaultCorner` | `top-right` | Default dock corner for the pill and the window |
 | `hotkey` | `Alt+Shift+A` | Toggle shortcut |
 | `provider` / `model` | `''` | Empty ⇒ host default model |
 | `customRedactionPatterns` | `[]` | Extra redaction regexes |

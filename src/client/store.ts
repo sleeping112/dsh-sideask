@@ -71,7 +71,7 @@ const FALLBACK_SETTINGS: SideAskSettings = {
   readContext: true,
   redactSensitive: true,
   persistHistory: true,
-  defaultCorner: 'bottom-right',
+  defaultCorner: 'top-right',
   hotkey: 'Alt+Shift+A',
   provider: '',
   model: '',
