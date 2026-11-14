@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] — 2026-11-15
+
+### Changed
+- **The entrance pill sits a little lower**: the vertical offset from the top
+  edge is now a configuration field `pillOffset` (default 40 px, range 0–240)
+  instead of the fixed 18 px shared with the horizontal margin. Horizontal
+  offset stays 18 px; bottom corners keep 18 px. Verified in a real browser:
+  pill rect top = 40, right margin = 18, hotkey still opens the window, no boot
+  errors.
+
 ## [0.1.4] — 2026-11-15
 
 ### Fixed

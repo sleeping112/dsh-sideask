@@ -33,23 +33,30 @@ export const DEFAULT_WIDTH = 380
 export const DEFAULT_HEIGHT = 520
 /** Margin (px) between the entrance pill and the viewport edges. */
 export const PILL_MARGIN = 18
+/** Default vertical offset (px) from the top edge, so the pill clears the top bar. */
+export const PILL_TOP_OFFSET = 40
 
 /**
  * CSS offsets for the floating entrance pill at a given corner.
  *
  * The pill is not a window: it has no remembered geometry of its own, it just
  * sits at the corner the window is docked to (or at `defaultCorner` before the
- * window has ever moved). Keeping this pure makes "where is the ball" testable
- * instead of hard-coded to one corner in the view.
+ * window has ever moved). `top` is configurable (`pillOffset`) because the top
+ * edge usually has a window/title bar the pill should not overlap.
  */
-export function pillStyle(corner: DockCorner, margin = PILL_MARGIN): {
+export function pillStyle(
+  corner: DockCorner,
+  options: { edge?: number; top?: number } = {},
+): {
   left?: number
   right?: number
   top?: number
   bottom?: number
 } {
-  const vertical = corner === 'top-left' || corner === 'top-right' ? { top: margin } : { bottom: margin }
-  const horizontal = corner === 'top-left' || corner === 'bottom-left' ? { left: margin } : { right: margin }
+  const edge = options.edge ?? PILL_MARGIN
+  const top = options.top ?? PILL_TOP_OFFSET
+  const vertical = corner === 'top-left' || corner === 'top-right' ? { top } : { bottom: edge }
+  const horizontal = corner === 'top-left' || corner === 'bottom-left' ? { left: edge } : { right: edge }
   return { ...vertical, ...horizontal }
 }
 

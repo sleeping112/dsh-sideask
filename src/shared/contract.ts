@@ -120,6 +120,11 @@ export interface SideAskSettings {
   persistHistory: boolean
   /** Default docking corner for the floating window. */
   defaultCorner: DockCorner
+  /**
+   * Vertical offset (px) of the entrance pill from the top edge. Keeps the pill
+   * clear of the window/title row; horizontal offset is fixed at 18px.
+   */
+  pillOffset: number
   /** Global shortcut that toggles the window, e.g. `Alt+Shift+A`. */
   hotkey: string
   /** Provider/model override; empty strings mean "host default". */

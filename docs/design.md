@@ -365,6 +365,7 @@ data: {"type":"done","requestId":"r1","messageId":"m_...","text":"…","citation
 | `redactSensitive` | bool | true | 敏感信息脱敏（双端） |
 | `persistHistory` | bool | true | 轻对话历史是否落盘 |
 | `defaultCorner` | 4 角枚举 | top-right | 悬浮球与悬浮窗的默认停靠角 |
+| `pillOffset` | 0–240 | 40 | 悬浮球距顶部的像素偏移（右上/左上时生效） |
 | `hotkey` | string | `Alt+Shift+A` | 唤起快捷键 |
 | `customRedactionPatterns` | string[] | [] | 自定义脱敏正则 |
 | `historyTurns` | 0–40 | 8 | 内嵌的历史旁问轮数 |

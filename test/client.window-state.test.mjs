@@ -29,12 +29,15 @@ test('defaultState uses the top-right corner by default', () => {
   assert.equal(restore(null, VIEWPORT).corner, 'top-right')
 })
 
-test('pillStyle anchors the pill at each corner with the configured margin', () => {
-  assert.deepEqual(pillStyle('top-left'), { top: 18, left: 18 })
-  assert.deepEqual(pillStyle('top-right'), { top: 18, right: 18 })
+test('pillStyle anchors the pill at each corner with the configured offsets', () => {
+  // Top corners use the configurable top offset (default 40) so the pill clears
+  // the window/title row; bottom corners use the edge margin.
+  assert.deepEqual(pillStyle('top-left'), { top: 40, left: 18 })
+  assert.deepEqual(pillStyle('top-right'), { top: 40, right: 18 })
   assert.deepEqual(pillStyle('bottom-left'), { bottom: 18, left: 18 })
   assert.deepEqual(pillStyle('bottom-right'), { bottom: 18, right: 18 })
-  assert.deepEqual(pillStyle('top-right', 8), { top: 8, right: 8 })
+  assert.deepEqual(pillStyle('top-right', { top: 64 }), { top: 64, right: 18 })
+  assert.deepEqual(pillStyle('top-right', { edge: 8, top: 24 }), { top: 24, right: 8 })
 })
 
 test('defaultState sits in the bottom-right corner', () => {

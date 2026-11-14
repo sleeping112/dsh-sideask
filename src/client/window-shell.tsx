@@ -218,7 +218,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
       <div className="sa-root">
         <div
           className="sa-pill"
-          style={pillStyle(geometry.corner)}
+          style={pillStyle(geometry.corner, { top: settings.pillOffset })}
           data-testid="sideask-pill"
           onClick={() => {
             store.setOpen(true)

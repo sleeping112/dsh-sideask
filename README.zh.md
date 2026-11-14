@@ -85,6 +85,7 @@ $env:ELECTRON_RUN_AS_NODE=1
 | `autoSummary` | `true` | 历史摘要层（P1 生效） |
 | `answerMaxTokens` | `1200` | 回答长度上限 |
 | `defaultCorner` | `top-right` | 悬浮球与悬浮窗的默认停靠角 |
+| `pillOffset` | `40` | 悬浮球距顶部偏移（px，可微调上下位置） |
 | `hotkey` | `Alt+Shift+A` | 唤起快捷键 |
 | `provider` / `model` | `''` | 留空 = 用宿主默认模型 |
 | `customRedactionPatterns` | `[]` | 自定义脱敏正则 |

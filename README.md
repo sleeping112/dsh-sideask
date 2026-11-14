@@ -85,6 +85,7 @@ Host settings page (schemastery `Config`; rendering by the plugin manager is **a
 | `autoSummary` | `true` | History summary layer (active in P1) |
 | `answerMaxTokens` | `1200` | Answer length cap |
 | `defaultCorner` | `top-right` | Default dock corner for the pill and the window |
+| `pillOffset` | `40` | Vertical offset of the pill from the top edge (px) |
 | `hotkey` | `Alt+Shift+A` | Toggle shortcut |
 | `provider` / `model` | `''` | Empty ⇒ host default model |
 | `customRedactionPatterns` | `[]` | Extra redaction regexes |

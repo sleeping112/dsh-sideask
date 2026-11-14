@@ -72,6 +72,7 @@ const FALLBACK_SETTINGS: SideAskSettings = {
   redactSensitive: true,
   persistHistory: true,
   defaultCorner: 'top-right',
+  pillOffset: 40,
   hotkey: 'Alt+Shift+A',
   provider: '',
   model: '',

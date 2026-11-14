@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Plugin configuration: schemastery schema + a normalised reader.
  *
  * Verified host behaviours this file depends on (see docs/research/host-api.md):
@@ -47,6 +47,8 @@ export const Config = z.object({
   redactSensitive: z.boolean().default(true).volatile(),
   persistHistory: z.boolean().default(true).volatile(),
   defaultCorner: z.union(['top-left', 'top-right', 'bottom-left', 'bottom-right']).default('top-right').volatile(),
+  /** Vertical offset of the entrance pill from the top edge, in px. */
+  pillOffset: z.number().min(0).max(240).default(40).volatile(),
   hotkey: z.string().default(DEFAULT_HOTKEY).volatile(),
   customRedactionPatterns: z.array(z.string()).default([]).volatile(),
   historyTurns: z.number().min(0).max(40).default(8).volatile(),
@@ -108,6 +110,7 @@ export function readConfig(raw: unknown): HostConfig {
     redactSensitive: bool(value('redactSensitive'), true),
     persistHistory: bool(value('persistHistory'), true),
     defaultCorner: CORNERS.includes(corner) ? corner : 'top-right',
+    pillOffset: Math.trunc(clamp(Number(value('pillOffset')), 0, 240, 40)),
     hotkey: hotkey.length > 0 && hotkey.length <= 40 ? hotkey : DEFAULT_HOTKEY,
     customRedactionPatterns: Array.isArray(patterns)
       ? patterns.filter((entry): entry is string => typeof entry === 'string').slice(0, 16)
@@ -132,6 +135,7 @@ export function toSettings(config: HostConfig): SideAskSettings {
     redactSensitive: config.redactSensitive,
     persistHistory: config.persistHistory,
     defaultCorner: config.defaultCorner,
+    pillOffset: config.pillOffset,
     hotkey: config.hotkey,
     provider: config.provider,
     model: config.model,
