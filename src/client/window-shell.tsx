@@ -89,6 +89,15 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
     touched.current = true
   }, [])
 
+  /**
+   * Load host settings on mount, not on first open: the entrance pill must
+   * already use the configured `pillOffset`/`defaultCorner` while the window is
+   * still closed. `init()` is idempotent.
+   */
+  useEffect(() => {
+    void store.init()
+  }, [store])
+
   useEffect(() => {
     if (touched.current) saveWindow(geometry)
   }, [geometry])

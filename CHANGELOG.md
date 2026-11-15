@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] — 2026-11-15
+
+### Fixed
+- **The closed-state pill ignored host settings.** `store.init()` (which loads
+  `bootstrap.settings`) only ran when the window was opened, so the entrance pill
+  kept using the local fallback (`pillOffset: 40`, `defaultCorner: bottom-right`
+  era values) instead of the configured values — changing `pillOffset` appeared to
+  do nothing until the panel was opened. Settings now load on mount; verified in a
+  real browser with `pillOffset: 110` (pill rect top = 110px, right margin 18px).
+
 ## [0.1.5] — 2026-11-15
 
 ### Changed
