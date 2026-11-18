@@ -172,3 +172,20 @@ export function refsInText(source: string): string[] {
   }
   return refs
 }
+
+/**
+ * Parse bucket for streamed answers.
+ *
+ * Parsing the whole Markdown source on every token is O(n²) work for a long
+ * answer. The view therefore memoises on this bucket instead of on the raw text:
+ * while streaming, the bucket changes only every `STREAM_BUCKET_CHARS` characters
+ * (so re-renders are cheap and a few dozen characters of formatting latency are
+ * invisible), and it changes exactly once more when the stream settles so the
+ * final render is always parsed from the authoritative text.
+ */
+export const STREAM_BUCKET_CHARS = 80
+
+export function markdownBucket(text: string, streaming: boolean): string {
+  if (!streaming) return `final:${text.length}`
+  return `stream:${Math.floor(text.length / STREAM_BUCKET_CHARS)}`
+}

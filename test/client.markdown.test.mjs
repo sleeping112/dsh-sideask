@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { parseInline, parseMarkdown, refsInText } from '../lib/client/markdown.js'
+import { STREAM_BUCKET_CHARS, markdownBucket } from '../lib/client/markdown.js'
 
 test('parseInline: plain text stays text', () => {
   assert.deepEqual(parseInline('你好'), [{ type: 'text', text: '你好' }])
@@ -71,4 +72,23 @@ test('parseMarkdown: HTML-looking text is preserved as text (never markup)', () 
 test('refsInText collects unique refs in order', () => {
   assert.deepEqual(refsInText('a [c2] b [c1] c [c2]'), ['c2', 'c1'])
   assert.deepEqual(refsInText('无引用'), [])
+})
+
+test('markdownBucket keeps the parse key stable within a streaming bucket', () => {
+  const a = 'x'.repeat(10)
+  const b = 'x'.repeat(STREAM_BUCKET_CHARS - 1)
+  assert.equal(markdownBucket(a, true), markdownBucket(b, true))
+  // Crossing a bucket boundary must produce a new key.
+  assert.notEqual(markdownBucket('x'.repeat(STREAM_BUCKET_CHARS + 1), true), markdownBucket(b, true))
+  assert.notEqual(markdownBucket('x'.repeat(STREAM_BUCKET_CHARS * 2 + 1), true), markdownBucket(a, true))
+})
+
+test('markdownBucket always re-parses once the stream settles', () => {
+  const text = '已经完成的长回答'.repeat(10)
+  const streamingKey = markdownBucket(text, true)
+  const finalKey = markdownBucket(text, false)
+  assert.notEqual(streamingKey, finalKey)
+  assert.ok(finalKey.startsWith('final:'))
+  // Two different settled lengths must not share a key (final text replaced).
+  assert.notEqual(markdownBucket(text, false), markdownBucket(text + 'x', false))
 })

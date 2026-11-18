@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import type { Citation, SideAskError, ThreadMessage } from '../shared/contract.js'
-import { parseMarkdown, type Block, type Inline } from './markdown.js'
+import { markdownBucket, parseMarkdown, type Block, type Inline } from './markdown.js'
 import type { SideAskStore, UiState } from './store.js'
 import { visibleMessages } from './store.js'
 import type { ContextSource } from './context-source.js'
@@ -102,7 +102,15 @@ function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.
 
 /** Answer body: Markdown AST plus a caret while streaming. */
 function AnswerBody({ text, citations, streaming }: { text: string; citations: Citation[]; streaming: boolean }): React.ReactElement {
-  const blocks = useMemo(() => parseMarkdown(text), [text])
+  // Re-parsing the whole answer on every token is O(n²) for long answers. The
+  // memo key is a *bucket* (see markdownBucket), so streaming re-renders at most
+  // once per STREAM_BUCKET_CHARS characters, and the settled text is parsed once
+  // more from the authoritative value.
+  const latest = useRef(text)
+  latest.current = text
+  const bucket = markdownBucket(text, streaming)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const blocks = useMemo(() => parseMarkdown(latest.current), [bucket])
   const citationMap = useMemo(() => new Map(citations.map((citation) => [citation.ref, citation])), [citations])
   return (
     <>
@@ -182,6 +190,7 @@ function MessageRow({
   conversation,
   contextSource,
   streaming,
+  suppressError,
 }: {
   message: ThreadMessage
   store: SideAskStore
@@ -189,13 +198,15 @@ function MessageRow({
   conversation: ConversationService | undefined
   contextSource: ContextSource
   streaming: boolean
+  /** The live ErrorState card already explains this failure. */
+  suppressError: boolean
 }): React.ReactElement {
   const isUser = message.role === 'user'
   return (
     <div className={isUser ? 'sa-msg sa-msg-user' : 'sa-msg sa-msg-assistant'}>
       <div className="sa-bubble">
         <AnswerBody text={message.text} citations={message.citations ?? []} streaming={streaming} />
-        {message.error !== null && message.error !== undefined ? (
+        {!suppressError && message.error !== null && message.error !== undefined ? (
           <div className="sa-error-code" style={{ marginTop: 4 }}>
             {errorText(message.error)}
           </div>
@@ -345,6 +356,16 @@ export function ThreadView({ store, state, conversation, contextSource }: Thread
   const scroller = useRef<HTMLDivElement | null>(null)
   const streaming = state.answer.status === 'streaming'
 
+  // The live ErrorState card is the single error surface while a failure is the
+  // current answer; the matching bubble must not repeat the same text.
+  const lastAssistantId = (() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'assistant') return messages[index]?.id ?? null
+    }
+    return null
+  })()
+  const errorCardVisible = state.answer.error !== null
+
   // Keep the newest content in view while streaming, but never fight a user
   // who scrolled up to read: only auto-scroll when already near the bottom.
   useEffect(() => {
@@ -367,6 +388,7 @@ export function ThreadView({ store, state, conversation, contextSource }: Thread
             conversation={conversation}
             contextSource={contextSource}
             streaming={streaming && message.id.startsWith('stream-')}
+            suppressError={errorCardVisible && message.id === lastAssistantId}
           />
         ))}
         <ErrorState store={store} state={state} />

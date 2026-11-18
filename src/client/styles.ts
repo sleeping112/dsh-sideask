@@ -1,4 +1,4 @@
-﻿/**
+/**
  * All plugin CSS, injected INSIDE the shadow root.
  *
  * Rules:
@@ -172,6 +172,28 @@ export const PANEL_CSS = `
   overflow: auto; border-radius: 10px; border: 1px solid var(--sa-border);
   background: var(--sa-bg); box-shadow: var(--sa-shadow); padding: 9px 10px; font-size: 11.5px;
 }
+.sa-menu {
+  position: absolute; right: 8px; top: 40px; z-index: 4;
+  width: min(300px, calc(100% - 16px)); max-height: 62%;
+  display: flex; flex-direction: column;
+  border-radius: 10px; border: 1px solid var(--sa-border);
+  background: var(--sa-bg); box-shadow: var(--sa-shadow); padding: 8px 9px; font-size: 11.5px;
+}
+.sa-menu-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; color: var(--sa-fg); margin-bottom: 6px; }
+.sa-menu-count { color: var(--sa-fg-weak); font-variant-numeric: tabular-nums; font-weight: 400; }
+.sa-menu-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.sa-menu-empty { color: var(--sa-fg-weak); padding: 6px 2px; }
+.sa-menu-item {
+  display: flex; flex-direction: column; gap: 1px; text-align: left;
+  border: 1px solid transparent; border-radius: 7px; padding: 5px 7px;
+  background: transparent; color: var(--sa-fg); cursor: pointer; font: inherit;
+}
+.sa-menu-item:hover { background: rgba(127,127,127,.14); }
+.sa-menu-item[data-active="true"] { border-color: var(--sa-accent); background: color-mix(in srgb, var(--sa-accent) 16%, transparent); }
+.sa-menu-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-menu-meta { font-size: 10.5px; color: var(--sa-fg-weak); }
+.sa-menu-actions { display: flex; gap: 5px; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--sa-border); }
+.sa-menu-actions .sa-chip:disabled { opacity: .45; cursor: default; }
 .sa-kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; color: var(--sa-fg-weak); }
 .sa-kv b { color: var(--sa-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sa-degr { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }

@@ -562,5 +562,45 @@ exceptions: 0
 6. "作为草稿"会覆盖现有草稿（提示里已说明，但仍具破坏性）；
 7. 会话兜底取 `sessions.list().ids[0]`，多会话时可能绑错。
 
+---
+
+## 14. 第四次审计（2026-11-18）：线程 UI、错误去重、流式解析
+
+按 `13.4` 的优先级修复前三项，并用真实浏览器逐项验证。
+
+### 14.1 线程管理 UI（新增）
+
+真机（无头 Edge + CDP，隔离实例）操作序列与观察结果：
+
+```
+menu open      {"present":true,"count":3,"items":[…3 个线程标题…],"state":{"threads":3,"current":null}}
+after new      {"threads":4,"current":"sa_mwmb18c4_pknz8qtv","menuOpen":false}
+after switch   {"current":"sa_mwmatk1q_fkfm5eda","messages":2}
+after delete   {"threads":3,"current":null}
+exceptions: 0
+```
+
+即：列出、新建（3→4 且切换到新线程）、切换（加载到该线程的 2 条消息）、删除（4→3）全部正常。
+截图：`sideask-thread-menu.png`。
+
+### 14.2 错误去重
+
+修复前同一失败在窗口内出现 2 次以上（气泡内 + 错误卡）。修复后：
+
+```
+error surface {"occurrences":1,"errorCards":1,"bubbles":2,"bubbleHasErrorCode":false}
+```
+
+即：`MISSING_CREDENTIAL` 只出现 1 次（错误卡），气泡不再重复；用户气泡与助手气泡仍在（2 个）。
+
+### 14.3 流式 Markdown 节流
+
+改为按"桶"记忆化：流式期间每 80 字符才重新解析一次，流结束再解析一次权威文本。
+新增单测：桶内稳定、跨桶变化、结束后必变（`test/client.markdown.test.mjs`）。测试总数 155。
+
+### 14.4 仍未修复
+
+`13.4` 第 4–7 项（引用定位、悬浮球 a11y、草稿覆盖、会话兜底），以及更长远的 P1/P2 需求。
+
 
 

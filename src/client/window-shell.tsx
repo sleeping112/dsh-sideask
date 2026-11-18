@@ -18,6 +18,7 @@ import { createRoot, type Root } from 'react-dom/client'
 
 import type { ContextSource } from './context-source.js'
 import { ContextPanel } from './context-panel.js'
+import { ThreadMenu } from './thread-menu.js'
 import type { SideAskStore, UiState } from './store.js'
 import { PANEL_CSS } from './styles.js'
 import { ThreadView } from './thread-view.js'
@@ -77,6 +78,7 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   const [geometry, setGeometry] = useState<WindowState>(() => loadWindow(settings.defaultCorner))
   const [dragging, setDragging] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [threadMenuOpen, setThreadMenuOpen] = useState(false)
   const dragRef = useRef<{ start: Point; origin: WindowState } | null>(null)
   const resizeRef = useRef<{ start: Point; left: number; top: number } | null>(null)
   /**
@@ -270,6 +272,16 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
           <button
             type="button"
             className="sa-iconbtn"
+            title="旁问线程：新建/切换/删除"
+            onClick={() => setThreadMenuOpen((open) => !open)}
+            aria-pressed={threadMenuOpen}
+            data-testid="sideask-thread-button"
+          >
+            线
+          </button>
+          <button
+            type="button"
+            className="sa-iconbtn"
             title="上下文详情"
             onClick={() => setDetailsOpen((open) => !open)}
             aria-pressed={detailsOpen}
@@ -300,6 +312,10 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
         <div className="sa-body">
           <ThreadView store={store} state={state} conversation={conversation} contextSource={contextSource} />
         </div>
+
+        {threadMenuOpen ? (
+          <ThreadMenu store={store} state={state} onClose={() => setThreadMenuOpen(false)} />
+        ) : null}
 
         {detailsOpen ? (
           <ContextPanel

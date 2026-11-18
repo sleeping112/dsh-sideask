@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.8] — 2026-11-18
+
+### Added
+- **Thread management UI** (was the biggest functional gap): a header button
+  ("线") opens a thread menu listing every side thread with message count and
+  relative time; selecting one switches to it, "＋ 新建" creates an empty thread,
+  "删除当前" deletes the current one. Verified in a real browser: create switched
+  the current thread (3→4 threads), switching loaded that thread's messages, and
+  delete removed it (4→3).
+
+### Changed
+- **One error surface**: while a failure is the current answer, the matching
+  assistant bubble no longer repeats the error text (the retry card owns it).
+  Measured in the browser: `MISSING_CREDENTIAL` occurrences in the window went
+  from 2+ to 1, `errorCards: 1`, `bubbleHasErrorCode: false`. Historical failures
+  still show a compact code line in their bubble.
+- **Streaming Markdown is parsed per bucket, not per token**: the view memoises
+  on `markdownBucket(text, streaming)` (80-character buckets while streaming,
+  one final parse on settle), removing the O(n²) re-parse of long answers.
+  Added unit tests for bucket stability/boundaries and the final key.
+
+### Verified
+- 155/155 tests; real-browser CDP run: thread menu 4 interactions + single error
+  surface + 0 uncaught exceptions (screenshot `sideask-thread-menu.png`).
+
 ## [0.1.7] — 2026-11-18
 
 ### Fixed
