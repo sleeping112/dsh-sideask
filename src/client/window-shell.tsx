@@ -329,57 +329,78 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
 }
 
 /**
- * Outer mount: creates the shadow root, injects CSS inside it, and renders the
- * shell into a nested React root. Renders only a zero-size host element in the
- * overlay layer, so nothing of ours participates in the host page's layout.
+ * Outer mount.
+ *
+ * The window is mounted from `document.body`, NOT from the DOM the slot gives
+ * us. Reason (a real bug found by a real-browser audit): the `shell.overlay`
+ * layer is z-index 20 inside the app frame, while the main chat's sticky
+ * composer/pane stack above it — so a window living in the overlay layer had its
+ * lower half (including the input box) painted underneath the chat composer and
+ * was therefore unclickable.
+ *
+ * The slot contribution is now a no-op mounter: it renders nothing and creates a
+ * body-level container with a maximal z-index, an open Shadow Root (style
+ * isolation preserved) and a nested React root.
  */
-export function ShadowHost(props: ShellProps): React.ReactElement {
-  const hostRef = useRef<HTMLDivElement | null>(null)
-  const rootRef = useRef<Root | null>(null)
-  const [fallback, setFallback] = useState(false)
-
+export function ShadowHost(props: ShellProps): React.ReactElement | null {
   useLayoutEffect(() => {
-    const host = hostRef.current
-    if (host === null) return
+    const container = document.createElement('div')
+    container.setAttribute('data-sideask-host', '')
+    // The container must own the high stacking rank: a fixed-position element
+    // with `z-index: auto` forms its own stacking context, so a `z-index: 60`
+    // child would still be painted at rank 0 relative to the app frame.
+    container.style.cssText =
+      'position:fixed;left:0;top:0;width:0;height:0;z-index:2147483000;'
+    document.body.appendChild(container)
+
     let root: Root | null = null
-    let cleanUp: (() => void) | null = null
-    try {
-      const shadow = host.attachShadow({ mode: 'open' })
-      const style = document.createElement('style')
-      style.setAttribute('data-sideask', 'shadow')
-      style.textContent = PANEL_CSS
-      shadow.appendChild(style)
-      const container = document.createElement('div')
-      container.className = 'sa-mount'
-      shadow.appendChild(container)
-      root = createRoot(container)
-      root.render(<WindowShell {...props} />)
-      rootRef.current = root
-      cleanUp = () => {
-        root?.unmount()
-        rootRef.current = null
+    const mountInto = (target: Element, shadow: boolean): void => {
+      if (shadow) {
+        const shadowRoot = (target as HTMLElement).attachShadow({ mode: 'open' })
+        const style = document.createElement('style')
+        style.setAttribute('data-sideask', 'shadow')
+        style.textContent = PANEL_CSS
+        shadowRoot.appendChild(style)
+        const mount = document.createElement('div')
+        mount.className = 'sa-mount'
+        shadowRoot.appendChild(mount)
+        root = createRoot(mount)
+        root.render(<WindowShell {...props} />)
+        return
       }
+      // Light-DOM fallback: same markup, page-level CSS, high z-index still wins.
+      const style = document.createElement('style')
+      style.setAttribute('data-sideask', 'light')
+      style.textContent = PANEL_CSS
+      const mount = document.createElement('div')
+      mount.className = 'sa-mount'
+      target.append(style, mount)
+      root = createRoot(mount)
+      root.render(<WindowShell {...props} />)
+    }
+
+    try {
+      mountInto(container, true)
     } catch {
-      // Shadow DOM unavailable: render the shell into the light DOM instead.
-      setFallback(true)
-      cleanUp = null
+      try {
+        mountInto(container, false)
+      } catch (error) {
+        console.error('[dsh-sideask] 无法挂载悬浮窗', error)
+      }
     }
+
     return () => {
-      cleanUp?.()
+      try {
+        root?.unmount()
+      } catch {
+        // Already unmounted.
+      }
+      container.remove()
     }
-    // Mount once: the nested root re-renders on its own state changes.
+    // Mount once: the nested root re-renders on its own store subscription.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (fallback) {
-    return (
-      <div className="sa-lightmount">
-        <style>{PANEL_CSS}</style>
-        <WindowShell {...props} />
-      </div>
-    )
-  }
-
-  // Zero-size host: the window itself is position:fixed inside the root.
-  return <div ref={hostRef} data-sideask-host="" style={{ width: 0, height: 0 }} />
+  // The slot contribution renders nothing on purpose (the window lives on body).
+  return null
 }

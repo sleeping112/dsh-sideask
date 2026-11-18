@@ -513,5 +513,54 @@ $env:DSH_HOME='E:\workspace\_probe\dshhome-sideask-verify'; $env:ELECTRON_RUN_AS
 node _probe\cdp-check2.mjs "<上面的URL>" 9334
 ```
 
+---
+
+## 13. 第三次审计（2026-11-18）：交互 bug 与修复
+
+方法：隔离实例 + 无头 Edge + CDP，**真实鼠标事件 / 真实键盘输入 / 截图**（不再只做 DOM 断言）。
+
+### 13.1 发现（按严重度）
+
+| # | 严重度 | 问题 | 证据 |
+|---|---|---|---|
+| 1 | **严重** | 悬浮窗被主对话输入区盖住 → 输入框点不到、无法打字 | `document.elementFromPoint(textarea中心)` 返回主对话的 `BUTTON`；`shadowRoot.activeElement` 为 null；真实鼠标点击后 `Input.insertText` 无法输入；截图显示窗口下半部分在聊天输入区下方 |
+| 2 | 中 | 错误码被后一次通用错误覆盖：`MISSING_CREDENTIAL` 被 `PROVIDER_ERROR` 替换 | 回退链失败后 `store.answer.error.code === 'PROVIDER_ERROR'`，而第一次失败是凭据错误 |
+| 3 | 中 | 切换会话不释放 `sessions.retain()` 的引用（会话保留泄漏） | `context-source.bind()` 丢弃了 reference |
+| 4 | 低 | 首次提问前"上下文详情"显示"未绑定主对话"（误导） | 面板 `extractionReason === null` 时走了默认文案 |
+| 5 | 低 | `bootstrap` 首次失败后不再重试（启动瞬间宿主未就绪） | `store.init()` 的 `initialised` 一次性置位 |
+
+### 13.2 修复（v0.1.7）
+
+1. **挂载方式改为 body 级**：插槽只作空 mounter；`document.body` 下建容器，
+   `z-index: 2147483000`，Shadow Root 与 CSS 注入不变。代价：窗口也会盖住模态框（已记录）。
+2. **错误选择策略**：`pickFailure()` 优先 `MISSING_CREDENTIAL/AUTH/NO_ADAPTER/QUOTA`，
+   并附"（已尝试 N 条模型路由）"。
+3. **会话引用所有化**：`bind()` 保存 reference，切换/销毁时 `release()`；`adopt()` 的绑定不释放（归探针作用域）。
+4. **上下文详情文案**：`extractionReason === null` → "尚未读取（发送第一个问题后显示统计）"。
+5. **bootstrap 可重试**：仅在已有成功 bootstrap 时才跳过；另有 `initialising` 防并发。
+
+### 13.3 修复后真机验证
+
+```
+stacking/hit   {"docHit":"DIV[sideask-host]","shadowHit":"sa-input","isOurHostOnTop":true}
+after real click  {"active":"TEXTAREA"}
+after insertText  {"value":"真实鼠标与键盘路径测试"}
+after Enter       {"lastQuestion":"…","status":"error","messages":2}
+settled           {"error":"MISSING_CREDENTIAL","errorText":"MISSING_CREDENTIAL…（已尝试 2 条模型路由）…"}
+exceptions: 0
+```
+
+截图 `sideask-fixed2.png`：窗口完整浮在聊天之上，输入框、发送按钮、错误卡均可交互。
+
+### 13.4 仍未修复（已知缺口，非崩溃）
+
+1. 没有线程管理 UI（新建/切换/删除当前线程）；目前只有"清空全部历史"；
+2. 错误信息重复展示：助手气泡内一次 + 错误卡一次；
+3. 长回答流式时每个 token 重新解析 Markdown（可加节流/长度分桶）；
+4. 引用 chip 只显示摘录，不能定位主对话原文（P1）；
+5. 悬浮球是 `div`（非 button），键盘可达性不足；
+6. "作为草稿"会覆盖现有草稿（提示里已说明，但仍具破坏性）；
+7. 会话兜底取 `sessions.list().ids[0]`，多会话时可能绑错。
+
 
 

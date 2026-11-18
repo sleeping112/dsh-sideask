@@ -24,7 +24,7 @@
 |---|---|---|---|---|
 | A1 | 宿主提供 `ctx.sessions.retain(id).ready` → `binding.eventSource.getSnapshot().entries` 可只读拿到当前会话可见消息 | **[已验证]** 结构见 `dsh-api-session-controller/lib/client.js:4072,4145-4150,1741-1762`；消息形状见 `dsh-client-ui-chat/lib/client.js:11955-11992` | 客户端拿不到 transcript | 降级到会话作用域 Slot 注入的 `useSession`/`useConversation` 标准 props；再降级到 DOM 选区（`window.getSelection()`）+ 用户手动粘贴 |
 | A2 | 能确定“当前会话 id” | **[假设]** 没有单一 `currentSession` 服务；需自建探针（见 §7.2） | 探针不发火 | 三级回退：选区交互回调里的 `request.sessionId` → `ctx.sessions.list()` 最近活跃 → 只回答问题（无上下文） |
-| A3 | 悬浮窗可挂在 `shell.overlay` 根级插槽，且可在自建 Shadow Root 内渲染 React | 插槽层 **[已验证]**（`dsh-client-ui-layout/lib/client.js:401-405`，层 `z-index:20`）；Shadow DOM **[假设]**（全仓无 `attachShadow` 先例，但属纯 DOM API） | React 在 Shadow Root 内事件异常 | 自动回退 light DOM + `.sideask-` 类名前缀（所有官方插件都是这么做的） |
+| A3 | 悬浮窗挂载方式 | 插槽层 **[已验证]**（`dsh-client-ui-layout/lib/client.js:401-405`，层 `z-index:20`）；**实测该层会被主对话输入区盖住**，因此窗口改为 `document.body` 级挂载 + Shadow Root | 无 | 插槽贡献仅作 mounter；body 级容器不可用时退回插槽内渲染 |
 | A4 | 能把文本插回主对话输入框 | **[已验证]** `ctx.conversation.input.for(binding.ctx).actions.insertQuote(text)`（`dsh-client-ui-conversation/lib/client.js:15186-15197,15368-15395,16127-16133`） | `input.for` 调用路径不稳 | 回退 `setDraft(text)`，再回退“复制到剪贴板 + 提示用户粘贴”；`insertQuote` 返回 `false` 时 UI 明确提示“输入框当前不是纯文本模式” |
 | A5 | 宿主模型服务可从插件调用：`ctx.llm.stream({provider, model, messages, signal, temperature, maxTokens})` | **[已验证]** `dsh-llm/README.md:47-59`（流式示例）、`dsh-llm/lib/index.js:2395-2400`（`stream`）、`dsh-llm/lib/types/assembler.js`（chunk 协议）、`dsh-llm-deepseek/lib/index.js:2019-2028`（`usage`/`finish` 形状） | `ctx.llm` 未挂载或 provider 未注册 | 返回 `NO_ADAPTER` 并给出可操作提示（去设置里选默认模型）；窗口进入 `unavailable` 状态而非崩溃 |
 | A6 | 模型路由可由插件配置或宿主默认模型解析：`ctx.get('agentDefaultModel').currentSelection()` | **[已验证]** `dsh-agent-default-model/lib/index.js`（`currentSelection()` 返回 `{provider, model, reasoningEffort?}`） | 该服务不存在 | 用 `ctx.llm.listProviders()[0].id` + 配置里的 `model`；再不行要求用户显式配置 provider/model |
@@ -46,7 +46,7 @@
 | H7 | 会话只读视图（客户端） | `ctx.sessions.retain(id,{source}).ready` → `binding.eventSource.getSnapshot()/.subscribe()` | **[已验证]**（`retain→ready→entries` 组合 **[假设]**） | 提取当前主对话可见消息 + 增量刷新 | 手动快照（用户点“抓取上下文”）或 DOM 选区 |
 | H8 | 选中文本交互（客户端） | `ctx.uiConversation.interactions.register({id, onInteraction})`、`request.readText()` | **[已验证]** | 取用户选中文本作为最高优先级上下文 | `window.getSelection()` 兜底 |
 | H9 | 输入框写入（客户端） | `ctx.conversation.input.for(binding.ctx).actions.insertQuote/setDraft/captureInsertion+insertText` | **[已验证]**（调用路径 **[假设]**） | “引用到主对话/插入引用块/作为草稿” | 复制到剪贴板 + 提示粘贴 |
-| H10 | 覆盖层插槽（客户端） | `ctx.slots.inject('shell.overlay', () => ctx.slots.register({name:'shell.overlay'}, Comp))` | **[已验证]** | 悬浮窗挂载点（`z-index:20` 层） | `createPortal(node, document.body)` 兜底 |
+| H10 | 覆盖层插槽（客户端） | `ctx.slots.inject('shell.overlay', …)` 仅作 mounter；窗口实际 body 级挂载 | **[已验证，但改用 body 挂载]** | 悬浮窗挂载点 | 无（插槽不可用也能挂到 body） |
 | H11 | 快捷键（客户端） | ~~`ctx.shortcuts.register(...)`~~ → **插件自建 `keydown` 监听**（见 R12）| **[已验证，且已放弃宿主服务]** | 唤起/收起悬浮窗 | 无依赖；不依赖宿主即可用 |
 | H12 | 设置页插槽（客户端，可选） | `ctx.slots.inject('settings.section', …)` | **[已验证]** | 在 dsh 设置里放“旁问”分区 | 只用窗口内设置面板 |
 | H13 | 国际化（可选） | `ctx.locale.register(ns, {zh, en})` | **[已验证]** | 中英文案 | 内置 zh/en 切换 |

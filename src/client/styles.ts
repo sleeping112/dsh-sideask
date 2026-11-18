@@ -1,4 +1,4 @@
-/**
+﻿/**
  * All plugin CSS, injected INSIDE the shadow root.
  *
  * Rules:
@@ -15,7 +15,9 @@ export const PANEL_CSS = `
 :host, .sa-root { all: initial; }
 .sa-root {
   position: fixed;
-  z-index: 21;
+  /* Above the app frame's chat/composer stacking. The window is body-mounted for
+     this reason; staying below the chat composer makes the input unclickable. */
+  z-index: 60;
   font: 13px/1.55 var(--dsw-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif);
   color: var(--dsw-alias-label-primary, #e9edf5);
   --sa-bg: var(--dsw-alias-bg-base, #16181d);
@@ -157,7 +159,7 @@ export const PANEL_CSS = `
 }
 
 .sa-pill {
-  position: fixed; z-index: 21; display: inline-flex; align-items: center; gap: 6px;
+  position: fixed; z-index: 60; display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 11px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--sa-border); background: var(--sa-bg); color: var(--sa-fg);
   box-shadow: var(--sa-shadow); font-size: 12px; user-select: none;

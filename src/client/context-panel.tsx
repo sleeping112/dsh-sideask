@@ -54,7 +54,11 @@ export function ContextPanel({ store, state, contextSource, onClose }: ContextPa
 
       <div className="sa-kv">
         <span>读取状态</span>
-        <b>{REASON_TEXT[state.extractionReason ?? 'no-session'] ?? state.extractionReason}</b>
+        <b>
+          {state.extractionReason === null
+            ? '尚未读取（发送第一个问题后显示统计）'
+            : REASON_TEXT[state.extractionReason] ?? state.extractionReason}
+        </b>
       </div>
       <div className="sa-kv">
         <span>模型</span>

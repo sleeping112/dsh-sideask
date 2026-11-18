@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.7] — 2026-11-18
+
+### Fixed
+- **CRITICAL: the floating window was unclickable.** It was mounted inside the
+  `shell.overlay` slot, which is z-index 20 in the app frame; the main chat's
+  sticky composer/pane paints above that layer, so the lower half of the window
+  (including the input box) sat *underneath* the chat composer. Real-browser
+  audit evidence: `document.elementFromPoint` at the textarea centre returned the
+  chat's own button, the textarea could not take focus, and typing did nothing.
+  - the window is now mounted from `document.body` into a container that owns a
+    maximal stacking rank (`z-index: 2147483000`); the slot contribution is a
+    no-op mounter. Style isolation is unchanged (open Shadow Root + injected CSS);
+  - verified: `docHit` is now our host, a real mouse click focuses the textarea
+    (`shadowRoot.activeElement === TEXTAREA`), real `Input.insertText` types into
+    it, and Enter sends the question.
+  - trade-off: the window now also floats above modals/drawers, because anything
+    body-level beats the whole app frame. Documented in the design doc.
+- **Misleading error code**: when the fallback routes also failed, the last
+  generic failure (`PROVIDER_ERROR`) replaced the actionable first one
+  (`MISSING_CREDENTIAL`). The reported error now prefers the most actionable
+  failure and appends "（已尝试 N 条模型路由）".
+- **Session retention leak**: `sessions.retain()` was called on every session
+  switch but the returned reference was never released. The reference is now
+  owned and released; adopted probe bindings are left to their own scope.
+- **Bootstrap failure was permanent**: a failed first `bootstrap` (overlay mounts
+  before the host may be ready) disabled settings loading for the rest of the
+  session. `init()` now retries while no successful bootstrap is cached.
+- **Context details panel said "未绑定主对话"** before the first extraction had
+  ever run; it now says statistics appear after the first question.
+
 ## [0.1.6] — 2026-11-15
 
 ### Fixed

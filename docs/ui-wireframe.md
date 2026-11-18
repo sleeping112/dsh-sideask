@@ -213,14 +213,24 @@
 
 ## 6. 挂载与降级
 
+真实浏览器审计发现：`shell.overlay`（z-index 20）会被主对话的 sticky 输入区盖住，
+窗口下半部分（含输入框）无法点击。因此**窗口改为 body 级挂载**，插槽只作空 mounter。
+
 ```
 shell.overlay 插槽
-   └─ ShadowHost（零尺寸 host div）
-        ├─ attachShadow('open')
-        ├─ <style data-sideask="shadow">（本插件全部 CSS）
-        └─ createRoot(shadowRoot) → WindowShell
-             ↑ 失败（无 Shadow DOM / createRoot 抛错）
-        └─ 回退：light DOM + .sa-* 前缀（与所有官方插件同款做法）
-             ↑ 再失败（插槽不可用）
-        └─ 兜底：document.body 直挂（并 console.error 说明原因）
+   └─ Mounter（渲染 null，仅用来拿到生命周期）
+        └─ document.body 下创建容器 div
+             style: position:fixed; left/top:0; width/height:0; z-index:2147483000
+             ├─ attachShadow('open')
+             ├─ <style data-sideask="shadow">（本插件全部 CSS）
+             └─ createRoot(shadowRoot) → WindowShell
+                  ↑ 失败（无 Shadow DOM / createRoot 抛错）
+             └─ 回退：light DOM（同一容器，样式表挂到容器内，.sa-* 前缀）
+                  ↑ 再失败
+             └─ 兜底：console.error 说明原因（窗口不可用，主对话不受影响）
+
+z-index 取舍：body 级 2147483000 一定高于整个 app frame，所以窗口也会盖住
+模态框/抽屉。这是"输入框可点"换来的；若要严格低于模态，需要宿主提供更高的
+插槽层（当前没有）。
+```
 ```

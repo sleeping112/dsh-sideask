@@ -252,6 +252,29 @@ function readRouteHint(value: unknown): RouteHint | null {
 }
 
 /**
+ * Choose the failure to report when every candidate route failed.
+ *
+ * Reporting the LAST failure hides the actionable one: the first attempt usually
+ * fails with `MISSING_CREDENTIAL` ("no API key for route X"), while a later
+ * fallback may fail with a generic `PROVIDER_ERROR`. Prefer the most actionable
+ * code, and say how many routes were tried.
+ */
+function pickFailure(failures: SideAskError[]): SideAskError | null {
+  if (failures.length === 0) return null
+  const actionable = failures.find(
+    (failure) =>
+      failure.code === 'MISSING_CREDENTIAL' ||
+      failure.code === 'AUTH' ||
+      failure.code === 'NO_ADAPTER' ||
+      failure.code === 'QUOTA',
+  )
+  const chosen = actionable ?? failures[failures.length - 1] ?? null
+  if (chosen === null) return null
+  if (failures.length <= 1) return chosen
+  return { ...chosen, message: `${chosen.message}（已尝试 ${failures.length} 条模型路由）` }
+}
+
+/**
  * Make credential failures actionable.
  *
  * The plain provider message ("no API key for provider route …") does not tell
@@ -485,7 +508,7 @@ export class SideAskRuntime {
         // happened before any token (NO_ADAPTER / MISSING_CREDENTIAL / AUTH), so
         // streamed text can never be duplicated or replayed.
         let result: CallResult | null = null
-        let lastFailure: SideAskError | null = null
+        const failures: SideAskError[] = []
         for (const candidate of candidates) {
           let producedDelta = false
           result = await callModel(
@@ -504,10 +527,9 @@ export class SideAskRuntime {
             },
           )
           if (result.failure === null) {
-            lastFailure = null
             break
           }
-          lastFailure = result.failure
+          failures.push(result.failure)
           const retryableRoute =
             !producedDelta &&
             (result.failure.code === 'MISSING_CREDENTIAL' ||
@@ -520,7 +542,7 @@ export class SideAskRuntime {
           queue.push({
             type: 'error',
             requestId,
-            error: lastFailure ?? makeError('NO_ADAPTER', '没有可用的模型路由'),
+            error: pickFailure(failures) ?? makeError('NO_ADAPTER', '没有可用的模型路由'),
           })
           return
         }
@@ -529,7 +551,7 @@ export class SideAskRuntime {
           const error =
             result.failure.code === 'ABORTED' && timedOut
               ? makeError('TIMEOUT', '模型调用超时')
-              : decorateCredentialFailure(result.failure)
+              : decorateCredentialFailure(pickFailure(failures) ?? result.failure)
           this.store.append(threadId, {
             id: newMessageId('m'),
             role: 'assistant',

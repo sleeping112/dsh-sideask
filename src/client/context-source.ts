@@ -48,6 +48,12 @@ export class ContextSource {
   private unsubscribe: (() => void) | null = null
   private selection: SelectionNote | null = null
   private lastRevision = -1
+  /**
+   * The retain() reference we own. It must be released when we switch sessions,
+   * otherwise every session switch leaves a retained session behind (a real
+   * retention leak, not just memory).
+   */
+  private reference: { release(): void } | null = null
 
   constructor(private readonly options: ContextSourceOptions) {}
 
@@ -73,6 +79,7 @@ export class ContextSource {
     try {
       const reference = sessions.retain(sessionId, { source: 'dsh-sideask' })
       const binding = await reference.ready
+      this.reference = reference
       this.binding = binding
       this.sessionId = sessionId
       this.entries = binding.eventSource.getSnapshot().entries
@@ -224,6 +231,16 @@ export class ContextSource {
         // The feed may already be gone.
       }
       this.unsubscribe = null
+    }
+    // Only release what WE retained: an adopted binding belongs to the probe's
+    // session scope and must not be released from here.
+    if (this.reference !== null) {
+      try {
+        this.reference.release()
+      } catch {
+        // Already released by the session scope.
+      }
+      this.reference = null
     }
     this.binding = null
     this.sessionId = null

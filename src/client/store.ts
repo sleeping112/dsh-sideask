@@ -107,6 +107,7 @@ export class SideAskStore {
   private readonly listeners = new Set<() => void>()
   private inflight: AbortController | null = null
   private initialised = false
+  private initialising = false
 
   constructor(private readonly deps: StoreDeps) {}
 
@@ -143,7 +144,11 @@ export class SideAskStore {
   // ------------------------------------------------------------- lifecycle
 
   async init(): Promise<void> {
-    if (this.initialised) return
+    // Retry allowed while no successful bootstrap is cached: the overlay mounts
+    // before the host is necessarily ready, and the first attempt can fail.
+    if (this.initialising) return
+    if (this.initialised && this.state.bootstrap !== null) return
+    this.initialising = true
     this.initialised = true
     try {
       const bootstrap = await this.deps.api.bootstrap()
@@ -162,6 +167,8 @@ export class SideAskStore {
       this.set({
         bootstrapError: makeError('INTERNAL', error instanceof Error ? error.message : String(error)),
       })
+    } finally {
+      this.initialising = false
     }
   }
 
