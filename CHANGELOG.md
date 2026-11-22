@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-11-22
+
+Iteration 4 of the competitive-gap plan (see `docs/verification.md` §18).
+
+### Added
+- **Persisted summary cache**: summaries are now stored per session in
+  `localStorage['dsh-sideask.summary.v1']` (bounded: 3 sessions × 8 entries ×
+  4000 chars) and rehydrated when the session binds, so a page reload no longer
+  forces a re-summarisation of the same history. Stale entries are harmless
+  because the cache key is the exact overflowing message-id set.
+- **Quick templates**: a "模板" picker (also opened by typing `/` in an empty
+  draft) inserts a well-formed question into the composer — 解释这段 / 找风险 /
+  列测试 / 说清楚点 / 总结要点 / 下一步 / 矛盾检查. Templates are never sent
+  automatically and merge with existing draft text.
+- **Past chats (read-only)**: the `#` pin picker now lists the other sessions;
+  selecting one reads its newest messages (retain → read → release, 2.5 s cap)
+  and lets you pin one as high-priority context. Nothing is written to that
+  session.
+
+### Changed
+- **One popover at a time**: the window shell now keeps a single panel slot
+  (details / threads / pins / models / templates), so two panels can no longer
+  overlap (found in a screenshot during verification).
+
+### Verified
+- 237/237 tests (6 summary-store + 4 template tests added).
+- Real-browser CDP: template picker lists all 7 templates and inserting "找风险"
+  wrote the text into the composer; `/` opened the picker; the pin panel showed
+  the other session, reading it returned the honest "no messages" state for an
+  empty session, and `loadPastSession('missing')` returned `null`;
+  `persistSummary` wrote the entry to localStorage and after a full page reload
+  the store hydrated it back; opening pins closed the templates panel; 0 console
+  errors / 0 uncaught exceptions.
+
 ## [0.4.0] — 2026-11-22
 
 Iteration 3 of the competitive-gap plan (see `docs/verification.md` §17).

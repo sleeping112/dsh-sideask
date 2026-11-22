@@ -1,6 +1,6 @@
 {
   "name": "dsh-sideask",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "DeepSeek Harness 插件：当前主对话旁的悬浮轻对话助手。A floating side-conversation assistant for DSH: reads the current conversation read-only, answers in its own thread, and only writes back when you explicitly ask.",
   "type": "module",
   "main": "lib/host/index.js",

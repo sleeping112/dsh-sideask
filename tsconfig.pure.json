@@ -13,6 +13,8 @@
     "src/client/session-fallback.ts",
     "src/client/draft.ts",
     "src/client/summary.ts",
+    "src/client/summary-store.ts",
+    "src/client/templates.ts",
     "src/client/writeback.ts"
   ]
 }

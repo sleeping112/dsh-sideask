@@ -28,6 +28,8 @@ export interface ThreadViewProps {
   onOpenPins: () => void
   /** Open the model picker (owned by the window shell). */
   onOpenModels: () => void
+  /** Open the quick-template picker (owned by the window shell). */
+  onOpenTemplates: () => void
 }
 
 // ------------------------------------------------------------------ markdown
@@ -373,11 +375,13 @@ function Composer({
   state,
   onOpenPins,
   onOpenModels,
+  onOpenTemplates,
 }: {
   store: SideAskStore
   state: UiState
   onOpenPins: () => void
   onOpenModels: () => void
+  onOpenTemplates: () => void
 }): React.ReactElement {
   // The draft lives in the store, keyed by thread id, so switching threads keeps
   // each thread's own draft (and it survives a page reload via localStorage).
@@ -460,6 +464,15 @@ function Composer({
         >
           模型：{state.modelOverride === null ? '跟随主对话' : state.modelOverride.model}
         </button>
+        <button
+          type="button"
+          className="sa-chip"
+          data-testid="sideask-template-button"
+          onClick={onOpenTemplates}
+          title="快捷模板（也可以直接输入 / 打开）"
+        >
+          模板
+        </button>
       </div>
       <div className="sa-inputrow">
         <textarea
@@ -469,6 +482,11 @@ function Composer({
           placeholder={streaming ? '正在回答…' : '问点什么（Enter 发送，Shift+Enter 换行）'}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (event.key === '/' && draft.length === 0 && !streaming) {
+              event.preventDefault()
+              onOpenTemplates()
+              return
+            }
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               submit()
@@ -490,7 +508,15 @@ function Composer({
   )
 }
 
-export function ThreadView({ store, state, conversation, contextSource, onOpenPins, onOpenModels }: ThreadViewProps): React.ReactElement {
+export function ThreadView({
+  store,
+  state,
+  conversation,
+  contextSource,
+  onOpenPins,
+  onOpenModels,
+  onOpenTemplates,
+}: ThreadViewProps): React.ReactElement {
   const messages = visibleMessages(state)
   const scroller = useRef<HTMLDivElement | null>(null)
   const streaming = state.answer.status === 'streaming'
@@ -560,7 +586,13 @@ export function ThreadView({ store, state, conversation, contextSource, onOpenPi
         ))}
         <ErrorState store={store} state={state} />
       </div>
-      <Composer store={store} state={state} onOpenPins={onOpenPins} onOpenModels={onOpenModels} />
+      <Composer
+        store={store}
+        state={state}
+        onOpenPins={onOpenPins}
+        onOpenModels={onOpenModels}
+        onOpenTemplates={onOpenTemplates}
+      />
     </>
   )
 }

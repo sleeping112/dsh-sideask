@@ -722,5 +722,39 @@ fork bad id                {"status":404}
 跨会话 `#Past Chats`、模板/快捷指令、导出 Markdown、token/费用面板、
 图片与语音输入；摘要层的端到端效果需要一次真实长对话才能量化。
 
+---
+
+## 18. 迭代 4（2026-11-22）：摘要持久化、模板、跨会话只读引用
+
+### 18.1 真机验证（隔离实例 + headless Edge + CDP）
+
+```
+templates panel  {"present":true,"labels":["解释这段","找风险","列测试","说清楚点","总结要点","下一步","矛盾检查"]}
+template applied {"value":"请找出这段内容的风险、边界条件和可能被忽略的失败情形。"}   ← 写入草稿、不发送
+slash shortcut   {"panelOpen":true,"focused":"sa-input"}                                ← 空草稿输入 / 打开模板
+past chats       {"present":true,"sessions":["default-workspace"]}                      ← 只读列出其它会话
+past messages    {"rows":[],"empty":"这个会话里没有可读取的消息。"}                      ← 空会话如实提示
+unknown past     {"result":null}                                                        ← 未知会话返回 null，不抛错
+persist write    {"ok":true,"stored":true,"rawLength":48}                               ← 写入 localStorage
+after reload     {"loaded":true,"entry":"这是持久化摘要测试内容，长度足够超过最小值。"}   ← 刷新后恢复
+panel exclusivity templates:true,pins:false → 点钉住后 templates:false,pins:true        ← 单面板互斥
+errors: 0 | exceptions: 0
+```
+
+### 18.2 实现要点
+
+- 摘要持久化：`summary-store.ts` 纯函数（加载/保存/单条写入，带 3×8×4000 上限），
+  `ContextSource` 在 bind/adopt 时按会话水合，写入后立即落盘；
+- 模板：`templates.ts` 纯数据 + `applyTemplate`（空草稿替换、非空追加），
+  面板只写草稿，`/` 仅在草稿为空时拦截；
+- 跨会话：`ContextSource.otherSessions()` 读会话列表、`readSessionMessages()`
+  retain→读→release（2.5s 上限），复用现有 pin 通道进入提示词；
+- 面板互斥：`window-shell` 用单个 `panel` 状态替代 5 个布尔值。
+
+### 18.3 仍未做
+
+导出 Markdown、token/费用面板、图片/语音输入；跨会话条目目前只能"钉住"，
+还不能像 #Past Chats 那样按关键词搜索历史。
+
 
 

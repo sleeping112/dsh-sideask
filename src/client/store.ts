@@ -298,6 +298,16 @@ export class SideAskStore {
     return this.deps.contextSource.recentMessages(limit)
   }
 
+  /** Other sessions available for read-only `#Past Chats` references. */
+  pastSessions(): Array<{ id: string; title: string }> {
+    return this.deps.contextSource.otherSessions()
+  }
+
+  /** Read one past session's visible messages (null when unavailable). */
+  async loadPastSession(sessionId: string): Promise<ChatMessage[] | null> {
+    return this.deps.contextSource.readSessionMessages(sessionId, 20)
+  }
+
   isPinned(messageId: string): boolean {
     return this.state.pins.some((pin) => pin.messageId === messageId)
   }

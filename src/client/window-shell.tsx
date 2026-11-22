@@ -22,6 +22,7 @@ import { ThreadMenu } from './thread-menu.js'
 import { SelectionAction } from './selection-action.js'
 import { PinsPanel } from './pins-panel.js'
 import { ModelPanel } from './model-panel.js'
+import { TemplatesPanel } from './templates-panel.js'
 import type { SideAskStore, UiState } from './store.js'
 import { PANEL_CSS } from './styles.js'
 import { ThreadView } from './thread-view.js'
@@ -80,10 +81,10 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   const settings = state.settings
   const [geometry, setGeometry] = useState<WindowState>(() => loadWindow(settings.defaultCorner))
   const [dragging, setDragging] = useState(false)
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [threadMenuOpen, setThreadMenuOpen] = useState(false)
-  const [pinsOpen, setPinsOpen] = useState(false)
-  const [modelsOpen, setModelsOpen] = useState(false)
+  // Only one popover may be open at a time: overlapping panels are confusing.
+  const [panel, setPanel] = useState<null | 'details' | 'threads' | 'pins' | 'models' | 'templates'>(null)
+  const togglePanel = (name: NonNullable<typeof panel>): void =>
+    setPanel((current) => (current === name ? null : name))
   const dragRef = useRef<{ start: Point; origin: WindowState } | null>(null)
   const resizeRef = useRef<{ start: Point; left: number; top: number } | null>(null)
   /**
@@ -284,8 +285,8 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             type="button"
             className="sa-iconbtn"
             title="旁问线程：新建/切换/删除"
-            onClick={() => setThreadMenuOpen((open) => !open)}
-            aria-pressed={threadMenuOpen}
+            onClick={() => togglePanel('threads')}
+            aria-pressed={panel === 'threads'}
             data-testid="sideask-thread-button"
           >
             线
@@ -294,8 +295,8 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             type="button"
             className="sa-iconbtn"
             title="上下文详情"
-            onClick={() => setDetailsOpen((open) => !open)}
-            aria-pressed={detailsOpen}
+            onClick={() => togglePanel('details')}
+            aria-pressed={panel === 'details'}
           >
             详
           </button>
@@ -326,25 +327,28 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             state={state}
             conversation={conversation}
             contextSource={contextSource}
-            onOpenPins={() => setPinsOpen((open) => !open)}
-            onOpenModels={() => setModelsOpen((open) => !open)}
+            onOpenPins={() => togglePanel('pins')}
+            onOpenModels={() => togglePanel('models')}
+            onOpenTemplates={() => togglePanel('templates')}
           />
         </div>
 
-        {pinsOpen ? <PinsPanel store={store} state={state} onClose={() => setPinsOpen(false)} /> : null}
+        {panel === 'templates' ? <TemplatesPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
 
-        {modelsOpen ? <ModelPanel store={store} state={state} onClose={() => setModelsOpen(false)} /> : null}
+        {panel === 'pins' ? <PinsPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
 
-        {threadMenuOpen ? (
-          <ThreadMenu store={store} state={state} onClose={() => setThreadMenuOpen(false)} />
+        {panel === 'models' ? <ModelPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
+
+        {panel === 'threads' ? (
+          <ThreadMenu store={store} state={state} onClose={() => setPanel(null)} />
         ) : null}
 
-        {detailsOpen ? (
+        {panel === 'details' ? (
           <ContextPanel
             store={store}
             state={state}
             contextSource={contextSource}
-            onClose={() => setDetailsOpen(false)}
+            onClose={() => setPanel(null)}
           />
         ) : null}
 

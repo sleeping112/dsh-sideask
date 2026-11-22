@@ -21,6 +21,14 @@ import { MIN_SUMMARY_CHARS, clampSummaryMessages } from '../shared/summarize.js'
 import type { SessionsService, SessionBinding } from './types.js'
 import { entriesToMessages, lastRouteHint, projectIncrementally } from './transcript.js'
 import { SummaryCache, planOverflow, summaryStatus, type SummaryPlanView } from './summary.js'
+import {
+  SUMMARY_STORAGE_KEY,
+  getSessionSummaries,
+  loadSummaryStore,
+  putSessionSummary,
+  saveSummaryStore,
+  type SummaryStore,
+} from './summary-store.js'
 
 export interface ContextSourceOptions {
   sessions: SessionsService | undefined
@@ -72,8 +80,35 @@ export class ContextSource {
   private readonly summaries = new SummaryCache()
   private summaryInFlightKey: string | null = null
   private lastRecentLimit = 12
+  /** Persisted summaries across page reloads, keyed by session id. */
+  private summaryStore: SummaryStore = {}
+  private summarySessionId: string | null = null
 
-  constructor(private readonly options: ContextSourceOptions) {}
+  constructor(private readonly options: ContextSourceOptions) {
+    try {
+      this.summaryStore = loadSummaryStore(window.localStorage.getItem(SUMMARY_STORAGE_KEY))
+    } catch {
+      // Storage unavailable: summaries stay in memory for this page.
+    }
+  }
+
+  /** Restore this session's persisted summaries into the in-memory cache. */
+  private attachSummarySession(sessionId: string): void {
+    this.summarySessionId = sessionId
+    this.summaries.clear()
+    for (const [key, text] of Object.entries(getSessionSummaries(this.summaryStore, sessionId))) {
+      this.summaries.put(key, text)
+    }
+  }
+
+  private persistSummary(sessionId: string, key: string, text: string): void {
+    this.summaryStore = putSessionSummary(this.summaryStore, sessionId, key, text)
+    try {
+      window.localStorage.setItem(SUMMARY_STORAGE_KEY, saveSummaryStore(this.summaryStore))
+    } catch {
+      // Quota/private mode: keep the in-memory copy.
+    }
+  }
 
   /** The session currently bound, if any. */
   get boundSessionId(): string | null {
@@ -100,6 +135,7 @@ export class ContextSource {
       this.reference = reference
       this.binding = binding
       this.sessionId = sessionId
+      this.attachSummarySession(sessionId)
       this.entries = binding.eventSource.getSnapshot().entries
       this.unsubscribe = binding.eventSource.subscribe(() => {
         this.entries = binding.eventSource.getSnapshot().entries
@@ -119,6 +155,7 @@ export class ContextSource {
     this.release()
     this.binding = binding
     this.sessionId = sessionId
+    this.attachSummarySession(sessionId)
     this.entries = binding.eventSource.getSnapshot().entries
     this.unsubscribe = binding.eventSource.subscribe(() => {
       this.entries = binding.eventSource.getSnapshot().entries
@@ -135,6 +172,64 @@ export class ContextSource {
   recentMessages(limit = 20): ChatMessage[] {
     const count = Math.max(1, Math.min(60, Math.trunc(limit)))
     return entriesToMessages(this.entries).slice(-count)
+  }
+
+  /** Other sessions that can be referenced read-only (`#Past Chats` style). */
+  otherSessions(): Array<{ id: string; title: string }> {
+    const sessions = this.options.sessions
+    if (sessions === undefined) return []
+    try {
+      const snapshot = sessions.list.getSnapshot() as {
+        ids?: string[]
+        byId?: Record<string, { displayTitle?: unknown; title?: unknown }>
+      }
+      const ids = Array.isArray(snapshot.ids) ? snapshot.ids : []
+      return ids
+        .filter((id) => typeof id === 'string' && id.length > 0 && id !== this.sessionId)
+        .slice(0, 20)
+        .map((id) => {
+          const row = snapshot.byId?.[id]
+          const title = typeof row?.displayTitle === 'string' ? row.displayTitle : typeof row?.title === 'string' ? row.title : ''
+          return { id, title: title.length > 0 ? title : `对话 ${id.slice(0, 8)}` }
+        })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Read another session's visible messages WITHOUT adopting it (retain, read,
+   * release). Bounded by a short timeout so a cold session cannot stall the UI.
+   */
+  async readSessionMessages(sessionId: string, limit = 20): Promise<ChatMessage[] | null> {
+    const sessions = this.options.sessions
+    if (sessions === undefined) return null
+    if (sessionId === this.sessionId) return this.recentMessages(limit)
+    let reference: { ready?: Promise<SessionBinding>; release?: () => void } | null = null
+    try {
+      reference = sessions.retain(sessionId, { source: 'dsh-sideask:past' }) as unknown as {
+        ready?: Promise<SessionBinding>
+        release?: () => void
+      }
+      const binding = await Promise.race([
+        Promise.resolve(reference.ready),
+        new Promise<null>((resolve) => {
+          const handle = setTimeout(() => resolve(null), 2500)
+          ;(handle as unknown as { unref?: () => void }).unref?.()
+        }),
+      ])
+      if (binding === null || binding === undefined) return null
+      const count = Math.max(1, Math.min(60, Math.trunc(limit)))
+      return entriesToMessages(binding.eventSource.getSnapshot().entries).slice(-count)
+    } catch {
+      return null
+    } finally {
+      try {
+        reference?.release?.()
+      } catch {
+        // Already released by its own scope.
+      }
+    }
   }
 
   /**
@@ -183,6 +278,7 @@ export class ContextSource {
       const text = await this.options.summarize(clamped, controller.signal)
       if (text !== null && text.trim().length >= MIN_SUMMARY_CHARS) {
         this.summaries.put(plan.key, text)
+        if (this.summarySessionId !== null) this.persistSummary(this.summarySessionId, plan.key, text)
         return text.trim()
       }
       return null
@@ -351,6 +447,8 @@ export class ContextSource {
     }
     this.binding = null
     this.sessionId = null
+    this.summarySessionId = null
+    this.summaries.clear()
     this.entries = null
     this.lastRevision = -1
   }

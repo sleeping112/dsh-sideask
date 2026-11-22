@@ -216,6 +216,12 @@ export const PANEL_CSS = `
 .sa-ctx-src { color: var(--sa-fg-weak); flex: 0 0 auto; }
 .sa-ctx-text { color: var(--sa-fg); word-break: break-all; }
 .sa-ctx-items .sa-chip { align-self: flex-start; margin-top: 2px; }
+
+/* Past-chats section inside the pin picker. */
+.sa-menu-sub { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--sa-border); }
+.sa-menu-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sa-menu-chips .sa-chip { font-size: 10.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-menu-chips .sa-chip[data-active="true"] { border-color: var(--sa-accent); color: var(--sa-accent); }
 .sa-kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; color: var(--sa-fg-weak); }
 .sa-kv b { color: var(--sa-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sa-degr { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
