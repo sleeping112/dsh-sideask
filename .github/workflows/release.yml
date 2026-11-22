@@ -39,6 +39,7 @@ jobs:
           node --test
       - name: Pack prebuilt tarball
         run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
           npm pack --pack-destination dist
           Rename-Item -Path (Get-ChildItem dist/*.tgz | Select-Object -First 1).FullName -NewName dsh-sideask.tgz
       - name: Create GitHub Release
