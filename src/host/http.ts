@@ -14,10 +14,19 @@
  * - every handler answers within a bounded time and never throws to the server.
  */
 
-import type { AskEvent, BootstrapResponse, SideAskError, Thread, ThreadListEntry } from '../shared/contract.js'
+import type {
+  AskEvent,
+  BootstrapResponse,
+  ForkResponse,
+  SideAskError,
+  SummarizeRequest,
+  SummarizeResponse,
+  Thread,
+  ThreadListEntry,
+} from '../shared/contract.js'
 import { API_VERSION, ROUTE_PREFIX } from '../shared/contract.js'
 import { makeError } from '../shared/errors.js'
-import type { HostContext, SideAskRuntime } from './runtime.js'
+import { SummaryLlmError, type HostContext, type SideAskRuntime } from './runtime.js'
 
 /** Minimal Node request/response surface (no @types/node dependency). */
 interface NodeRequest {
@@ -201,7 +210,59 @@ async function handleAsk(runtime: SideAskRuntime, request: NodeRequest, res: Nod
 }
 
 /**
- * Parse `/plugins/dsh-sideask/api/threads/<id>[/truncate]`.
+ * POST `/summarize` with `{ apiVersion, requestId, messages, maxChars?, routeHint? }`.
+ *
+ * JSON rather than SSE: the client only needs the finished summary, and the
+ * response is a single contracted `SummarizeResponse`. A malformed body is 400;
+ * a provider failure (no route could run) is 502 with the contract error object,
+ * mirroring how `/ask` exposes the same `SideAskError` — just not streamed.
+ */
+async function handleSummarize(runtime: SideAskRuntime, request: NodeRequest, res: NodeResponse): Promise<void> {
+  if (methodOf(request) !== 'POST') {
+    res.writeHead(405, { allow: 'POST' })
+    res.end()
+    return
+  }
+  let body: unknown
+  try {
+    body = await readJson(request)
+  } catch (error) {
+    sendError(res, 400, makeError('BAD_REQUEST', error instanceof Error ? error.message : '无法解析请求体'))
+    return
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    sendError(res, 400, makeError('BAD_REQUEST', '请求体不是对象'))
+    return
+  }
+
+  // The model call is not streamed, but a browser that closes the window while
+  // we wait should still stop the provider stream. The response's 'close' is the
+  // real disconnect signal (the request's 'close' fires once the body is read).
+  const controller = new AbortController()
+  res.on?.('close', () => {
+    if (res.writableEnded !== true) controller.abort()
+  })
+  request.on('aborted', () => {
+    if (res.writableEnded !== true) controller.abort()
+  })
+  request.on('error', () => {
+    if (res.writableEnded !== true) controller.abort()
+  })
+
+  try {
+    const payload: SummarizeResponse = await runtime.summarize(body as SummarizeRequest, controller.signal)
+    sendJson(res, 200, payload)
+  } catch (error) {
+    if (error instanceof SummaryLlmError) {
+      sendError(res, 502, error.error)
+      return
+    }
+    sendError(res, 500, makeError('INTERNAL', error instanceof Error ? error.message : String(error)))
+  }
+}
+
+/**
+ * Parse `/plugins/dsh-sideask/api/threads/<id>[/truncate|/fork]`.
  *
  * The id-scoped routes are registered under a SLASH-LESS prefix because the
  * host web server matches a prefix route as
@@ -215,9 +276,12 @@ async function handleAsk(runtime: SideAskRuntime, request: NodeRequest, res: Nod
  */
 interface ThreadPath {
   id: string
-  /** `null` for the item itself; `'truncate'` for its only sub-resource. */
-  action: 'truncate' | null
+  /** `null` for the item itself; a sub-resource action otherwise. */
+  action: 'truncate' | 'fork' | null
 }
+
+/** Every sub-resource action the item route understands. */
+const THREAD_ACTIONS = new Set(['truncate', 'fork'])
 
 function threadIdFromPath(pathname: string): ThreadPath | null {
   const prefix = `${ROUTE_PREFIX}/threads/`
@@ -228,9 +292,9 @@ function threadIdFromPath(pathname: string): ThreadPath | null {
   const rawId = slash === -1 ? rest : rest.slice(0, slash)
   const rawAction = slash === -1 ? null : rest.slice(slash + 1)
   if (rawId.length === 0) return null
-  if (rawAction !== null && rawAction !== 'truncate') return null
+  if (rawAction !== null && !THREAD_ACTIONS.has(rawAction)) return null
   try {
-    return { id: decodeURIComponent(rawId), action: rawAction }
+    return { id: decodeURIComponent(rawId), action: rawAction as ThreadPath['action'] }
   } catch {
     return null
   }
@@ -275,6 +339,49 @@ async function handleTruncate(
     return
   }
   sendJson(res, 200, { removed: result.removed })
+}
+
+/**
+ * POST `/threads/<id>/fork` with `{ fromMessageId }`.
+ *
+ * Copies the message at `fromMessageId` and everything before it into a new
+ * thread, leaving the source untouched. Answers 404 both for an unknown thread
+ * and for an unknown message: a fork cannot guess a prefix, so — unlike
+ * truncate's race-tolerant no-op — there is nothing sensible to return.
+ */
+async function handleFork(
+  runtime: SideAskRuntime,
+  threadId: string,
+  request: NodeRequest,
+  res: NodeResponse,
+): Promise<void> {
+  if (methodOf(request) !== 'POST') {
+    res.writeHead(405, { allow: 'POST' })
+    res.end()
+    return
+  }
+  let body: unknown
+  try {
+    body = await readJson(request)
+  } catch (error) {
+    sendError(res, 400, makeError('BAD_REQUEST', error instanceof Error ? error.message : '无法解析请求体'))
+    return
+  }
+  const fromMessageId =
+    body !== null && typeof body === 'object' && typeof (body as Record<string, unknown>)['fromMessageId'] === 'string'
+      ? ((body as Record<string, unknown>)['fromMessageId'] as string)
+      : ''
+  if (fromMessageId.length === 0) {
+    sendError(res, 400, makeError('BAD_REQUEST', '缺少 fromMessageId'))
+    return
+  }
+  const thread = runtime.forkThread(threadId, fromMessageId)
+  if (thread === null) {
+    sendError(res, 404, makeError('BAD_REQUEST', '会话或消息不存在'))
+    return
+  }
+  const payload: ForkResponse = { apiVersion: API_VERSION, thread }
+  sendJson(res, 200, payload)
 }
 
 function createThreadsHandler(runtime: SideAskRuntime) {
@@ -322,6 +429,11 @@ function createThreadsHandler(runtime: SideAskRuntime) {
 
     if (parsed.action === 'truncate') {
       await handleTruncate(runtime, parsed.id, request, res)
+      return
+    }
+
+    if (parsed.action === 'fork') {
+      await handleFork(runtime, parsed.id, request, res)
       return
     }
 
@@ -408,6 +520,16 @@ export function registerRoutes(ctx: HostContext, runtime: SideAskRuntime): () =>
       path: `${ROUTE_PREFIX}/ask`,
       handler: guard((req, res) => {
         void handleAsk(runtime, req, res)
+      }),
+    }),
+  )
+
+  disposers.push(
+    server.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/summarize`,
+      handler: guard((req, res) => {
+        void handleSummarize(runtime, req, res)
       }),
     }),
   )

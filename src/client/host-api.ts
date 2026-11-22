@@ -15,12 +15,16 @@ import type {
   AskEvent,
   AskRequest,
   BootstrapResponse,
+  ForkResponse,
   ModelsResponse,
   ProviderModels,
   SideAskError,
+  SummarizeMessage,
+  SummarizeResponse,
   Thread,
   ThreadListEntry,
 } from '../shared/contract.js'
+import { API_VERSION } from '../shared/contract.js'
 import { ROUTE_PREFIX } from '../shared/contract.js'
 import { makeError } from '../shared/errors.js'
 import { SseDecoder, isTerminal } from './stream.js'
@@ -42,8 +46,12 @@ export interface HostApi {
   clearThreads(signal?: AbortSignal): Promise<number>
   /** Remove `fromMessageId` and everything after it (used by "regenerate"). */
   truncateThread(threadId: string, fromMessageId: string, signal?: AbortSignal): Promise<number>
+  /** Copy the thread prefix (up to `fromMessageId`) into a new side thread. */
+  forkThread(threadId: string, fromMessageId: string, signal?: AbortSignal): Promise<Thread>
   /** Provider/model catalog for the in-window model picker. */
   listModels(signal?: AbortSignal): Promise<ProviderModels[]>
+  /** Compress overflow messages into a short summary ('' when unavailable). */
+  summarize(messages: SummarizeMessage[], maxChars?: number, signal?: AbortSignal): Promise<string>
 }
 
 async function readError(response: Response): Promise<SideAskError> {
@@ -194,6 +202,29 @@ export function createHostApi(): HostApi {
         ...(signal === undefined ? {} : { signal }),
       })
       return Array.isArray(result.providers) ? result.providers : []
+    },
+
+    async forkThread(threadId, fromMessageId, signal) {
+      const result = await requestJson<ForkResponse>(`/threads/${encodeURIComponent(threadId)}/fork`, {
+        method: 'POST',
+        body: JSON.stringify({ fromMessageId }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return result.thread
+    },
+
+    async summarize(messages, maxChars, signal) {
+      const result = await requestJson<SummarizeResponse>('/summarize', {
+        method: 'POST',
+        body: JSON.stringify({
+          apiVersion: API_VERSION,
+          requestId: `s_${Date.now().toString(36)}`,
+          messages,
+          ...(maxChars === undefined ? {} : { maxChars }),
+        }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return typeof result.summary === 'string' ? result.summary : ''
     },
   }
 }

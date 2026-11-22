@@ -160,6 +160,8 @@ function MessageActions({
   contextSource,
   canRegenerate,
   onRegenerate,
+  canFork,
+  onFork,
 }: {
   store: SideAskStore
   text: string
@@ -167,8 +169,11 @@ function MessageActions({
   contextSource: ContextSource
   canRegenerate: boolean
   onRegenerate: () => void
+  canFork: boolean
+  onFork: () => void
 }): React.ReactElement {
   const [busy, setBusy] = useState<WritebackKind | null>(null)
+  const [handoffBusy, setHandoffBusy] = useState(false)
   const run = useCallback(
     async (kind: WritebackKind) => {
       setBusy(kind)
@@ -197,6 +202,31 @@ function MessageActions({
           onClick={onRegenerate}
         >
           重新生成
+        </button>
+      ) : null}
+      {canFork ? (
+        <button
+          type="button"
+          className="sa-chip"
+          title="以这条回答为终点，复制出一个新的旁问线程继续聊"
+          disabled={busy !== null}
+          onClick={onFork}
+        >
+          分叉
+        </button>
+      ) : null}
+      {text.length > 0 ? (
+        <button
+          type="button"
+          className="sa-chip"
+          title="把这条结论写成主对话输入框里的任务（不会自动发送）"
+          disabled={handoffBusy}
+          onClick={() => {
+            setHandoffBusy(true)
+            void store.handoff(text).finally(() => setHandoffBusy(false))
+          }}
+        >
+          {handoffBusy ? '…' : '交给主对话'}
         </button>
       ) : null}
       {text.length > 0
@@ -230,6 +260,8 @@ function MessageRow({
   onCite,
   canRegenerate,
   onRegenerate,
+  canFork,
+  onFork,
 }: {
   message: ThreadMessage
   store: SideAskStore
@@ -242,6 +274,8 @@ function MessageRow({
   onCite: (citation: Citation) => void
   canRegenerate: boolean
   onRegenerate: () => void
+  canFork: boolean
+  onFork: () => void
 }): React.ReactElement {
   const isUser = message.role === 'user'
   return (
@@ -262,6 +296,8 @@ function MessageRow({
           contextSource={contextSource}
           canRegenerate={canRegenerate}
           onRegenerate={onRegenerate}
+          canFork={canFork}
+          onFork={onFork}
         />
       ) : null}
       {!isUser && (message.citations ?? []).length > 0 ? (
@@ -518,6 +554,8 @@ export function ThreadView({ store, state, conversation, contextSource, onOpenPi
             onCite={onCite}
             canRegenerate={message.id === lastAssistantId && !streaming && state.answer.status !== 'streaming'}
             onRegenerate={() => void store.regenerate(message)}
+            canFork={message.role === 'assistant' && message.text.length > 0 && state.thread !== null && state.thread.messages.length > 0}
+            onFork={() => void store.forkThread(message.id)}
           />
         ))}
         <ErrorState store={store} state={state} />

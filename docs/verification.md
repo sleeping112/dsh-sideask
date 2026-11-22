@@ -679,5 +679,48 @@ exceptions: 0
 Fork 会话副本、历史摘要层落地、一键"交给主对话执行"、跨会话 `#Past Chats`、
 模板/快捷指令、导出 Markdown、token/费用面板、图片与语音输入。
 
+---
+
+## 17. 迭代 3（2026-11-22）：摘要层、分叉、交给主对话
+
+### 17.1 真机验证（隔离实例 + 预置线程 + headless Edge + CDP）
+
+预置线程（用户问题 + 带引用的回答）绕过"需要真实模型"的限制：
+
+```
+thread list      […,"种子线程：分叉与交接验证",…]
+seeded thread    {"title":"种子线程：分叉与交接验证","messages":2,"text":"发布流程分三步…"}
+answer actions   {"regenerate":true,"fork":true,"handoff":true,"citationChip":true}
+citation jump    {"highlighted":true}            ← 注入同文段落被摘录匹配并高亮
+before fork      {"id":"sa_seed_fork","threads":9}
+after fork       {"id":"sa_mwrwsw1d…","title":"种子线程：分叉与交接验证 · 分叉","messages":2,"threads":10,"toast":"已从这条回答分叉出新线程"}
+handoff          {"toast":"已写入主对话输入框，确认后发送即可"}
+handoff landed   true   ← 主对话（app-shell shadow root 内的 contenteditable）
+                         值为 "请执行以下旁问结论：发布流程分三步…"
+dialogs accepted 1
+errors: 0 | exceptions: 0
+```
+
+路由级探测（同一实例）：
+
+```
+empty summarize            {"status":200,"summary":"","truncated":false}   ← 空输入不调模型
+non-empty summarize        {"status":502,"code":"MISSING_CREDENTIAL"}     ← 无凭据时结构化错误
+fork bad id                {"status":404}
+```
+
+### 17.2 摘要层实现要点
+
+- 触发点：每轮 `accepted` 后 `contextSource.refreshSummary()`（后台，12s 超时）；
+- 缓存键：窗口外消息 id 集合（FNV），LRU 8 条；集合变化自动失效；
+- 注入：`ContextBuildInput.overflowSummary`（含 `coversMessageIds`），沿用 25% 摘要预算；
+- 诚实降级：未就绪时 `summary-pending`，面板明确说明"本轮先用最近消息"；
+- 失败静默：宿主 502/超时/空结果都不影响提问（单测覆盖空输入与无 llm 分支）。
+
+### 17.3 仍未做（下一轮候选）
+
+跨会话 `#Past Chats`、模板/快捷指令、导出 Markdown、token/费用面板、
+图片与语音输入；摘要层的端到端效果需要一次真实长对话才能量化。
+
 
 

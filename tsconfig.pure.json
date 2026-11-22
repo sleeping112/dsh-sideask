@@ -11,6 +11,8 @@
     "src/client/hotkey.ts",
     "src/client/jump.ts",
     "src/client/session-fallback.ts",
-    "src/client/draft.ts"
+    "src/client/draft.ts",
+    "src/client/summary.ts",
+    "src/client/writeback.ts"
   ]
 }

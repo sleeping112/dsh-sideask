@@ -106,8 +106,13 @@ export function createPlugin(): PluginExports {
     const uiConversation = service<UiConversationService>(ctx, 'uiConversation')
     const conversation = service<ConversationService>(ctx, 'conversation')
 
-    const contextSource = new ContextSource({ sessions })
-    const store = new SideAskStore({ api: createHostApi(), contextSource, conversation })
+    const api = createHostApi()
+    const contextSource = new ContextSource({
+      sessions,
+      // Background history compression: reuses the same host model routing as ask.
+      summarize: (messages, signal) => api.summarize(messages, undefined, signal),
+    })
+    const store = new SideAskStore({ api, contextSource, conversation })
 
     // Debug handle: lets a developer inspect state from the console without
     // adding a second RPC surface.

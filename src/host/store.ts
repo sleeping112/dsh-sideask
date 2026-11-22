@@ -213,6 +213,72 @@ export class ThreadStore {
     return { removed }
   }
 
+  /**
+   * Copy the prefix of a thread (up to AND INCLUDING `fromMessageId`) into a
+   * brand-new thread, leaving the source untouched.
+   *
+   * This is the "branch from here" primitive: the client keeps exploring in the
+   * fork while the original exchange stays intact, so the user can compare two
+   * lines of questioning side by side.
+   *
+   * Why message ids are regenerated: a message id is scoped to its thread, and
+   * the client resolves `replyTo` into a question bubble. Reusing an id would
+   * make an id in the fork address a message in the source, so every copied
+   * message gets a fresh id and every `replyTo` that pointed *inside* the copied
+   * prefix is remapped to the new id. A `replyTo` pointing outside the prefix
+   * (only possible from corrupt history) is dropped rather than left dangling.
+   *
+   * Returns `null` for an unknown thread OR an unknown `fromMessageId`; unlike
+   * truncate (a race-tolerant no-op) a fork cannot guess what to copy, so both
+   * cases are surfaced as 404 by the HTTP layer.
+   */
+  fork(threadId: string, fromMessageId: string): Thread | null {
+    const source = this.threads.get(threadId)
+    if (source === undefined) return null
+    const index = source.messages.findIndex((message) => message.id === fromMessageId)
+    if (index === -1) return null
+
+    const copied = source.messages.slice(0, index + 1)
+    const idMap = new Map<string, string>()
+    for (const message of copied) idMap.set(message.id, newMessageId())
+
+    const now = Date.now()
+    const messages = copied.map((message): ThreadMessage => {
+      const next: ThreadMessage = {
+        id: idMap.get(message.id) ?? newMessageId(),
+        role: message.role,
+        text: message.text,
+        createdAt: message.createdAt,
+      }
+      // Deep-copy the optional payloads: a fork must never share mutable
+      // structure with its source, or editing one would silently edit both.
+      if (message.context !== undefined) next.context = structuredClone(message.context)
+      if (message.citations !== undefined) next.citations = structuredClone(message.citations)
+      if (message.error !== undefined) next.error = structuredClone(message.error)
+      if (typeof message.replyTo === 'string') {
+        const remapped = idMap.get(message.replyTo)
+        if (remapped !== undefined) next.replyTo = remapped
+      }
+      return next
+    })
+
+    const forked: Thread = {
+      id: newThreadId(),
+      title: forkTitle(source.title),
+      createdAt: now,
+      updatedAt: now,
+      sessionId: source.sessionId,
+      messages,
+    }
+    this.threads.set(forked.id, forked)
+    // Adding a thread can push the store over `maxThreads`: the oldest threads
+    // (by updatedAt, i.e. not the brand-new fork) are trimmed exactly as on any
+    // other write, so the limit cannot be bypassed through fork.
+    this.enforceLimits()
+    this.scheduleFlush()
+    return structuredClone(forked)
+  }
+
   remove(threadId: string): boolean {
     const removed = this.threads.delete(threadId)
     if (removed) this.scheduleFlush()
@@ -286,6 +352,24 @@ export class ThreadStore {
 function newThreadId(): string {
   const random = Math.random().toString(36).slice(2, 10)
   return `sa_${Date.now().toString(36)}_${random}`
+}
+
+/** Fresh message id. Kept random+suffixed because the store tolerates time travel. */
+function newMessageId(): string {
+  return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * Fork title: original + a visible marker, capped at 80 characters.
+ *
+ * The suffix matters more than the original title (it is what distinguishes the
+ * branch in the thread list), so the base is cut to leave room for it instead of
+ * slicing the composed string and losing the marker on long titles.
+ */
+function forkTitle(title: string): string {
+  const suffix = ' · 分叉'
+  const base = title.trim().length === 0 ? '新旁问' : title
+  return `${base.slice(0, Math.max(0, 80 - suffix.length))}${suffix}`
 }
 
 function titleFrom(text: string): string {

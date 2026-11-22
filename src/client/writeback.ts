@@ -33,6 +33,12 @@ export interface WritebackDeps {
   /** Session-scoped ctx from the retained binding (required by `input.for`). */
   getSessionCtx: () => unknown
   clipboard?: (text: string) => Promise<void>
+  /**
+   * Ask before replacing the main composer draft. Default true; callers that
+   * already confirmed intent (e.g. the explicit "hand off to main chat" action)
+   * pass false to avoid a double dialog.
+   */
+  confirmDraft?: boolean
 }
 
 /** Resolve the composer action face for the bound session, or null. */
@@ -87,6 +93,14 @@ export function toQuoteBlock(text: string, note?: string): string {
 }
 
 /**
+ * Text used for "hand this answer to the main conversation": an explicit
+ * instruction so the main agent treats it as a task, not as chit-chat.
+ */
+export function buildHandoffText(text: string): string {
+  return `请执行以下旁问结论：\n\n${text.trim()}`
+}
+
+/**
  * Insert `text` into the main composer.
  *
  * `quote-with-note` adds a one-line attribution so the main conversation can
@@ -109,7 +123,9 @@ export async function writeBack(kind: WritebackKind, text: string, deps: Writeba
       // "Insert as draft" replaces whatever is in the main composer: make that
       // destructive step explicit instead of silently overwriting a draft.
       const confirmed =
-        typeof window === 'undefined' || typeof window.confirm !== 'function'
+        deps.confirmDraft === false ||
+        typeof window === 'undefined' ||
+        typeof window.confirm !== 'function'
           ? true
           : window.confirm('将用旁问内容替换主对话输入框里现有的草稿，继续？')
       if (!confirmed) return { ok: false, via: 'draft', note: '已取消（未修改主对话草稿）' }

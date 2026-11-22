@@ -15,15 +15,29 @@
  * just without context.
  */
 
-import type { ChatMessage, ContextBundle, ContextSelection, SideAskSettings } from '../shared/contract.js'
+import type { ChatMessage, ContextBundle, ContextSelection, SideAskSettings, SummarizeMessage } from '../shared/contract.js'
 import { ProjectionCache, buildContext, buildQuestionOnlyBundle, type PinnedInput } from '../shared/context.js'
+import { MIN_SUMMARY_CHARS, clampSummaryMessages } from '../shared/summarize.js'
 import type { SessionsService, SessionBinding } from './types.js'
 import { entriesToMessages, lastRouteHint, projectIncrementally } from './transcript.js'
+import { SummaryCache, planOverflow, summaryStatus, type SummaryPlanView } from './summary.js'
 
 export interface ContextSourceOptions {
   sessions: SessionsService | undefined
   /** Hard ceiling for one extraction pass (default 1500 ms). */
   timeoutMs?: number
+  /**
+   * Compress overflow messages into a short summary. Wired to the host
+   * `/summarize` route; absent in tests / hostless contexts.
+   */
+  summarize?: (messages: SummarizeMessage[], signal: AbortSignal) => Promise<string | null>
+}
+
+export interface SummaryState {
+  overflowCount: number
+  cached: boolean
+  pending: boolean
+  key: string
 }
 
 export interface SelectionNote {
@@ -54,6 +68,10 @@ export class ContextSource {
    * retention leak, not just memory).
    */
   private reference: { release(): void } | null = null
+  /** Summaries of overflow messages, keyed by the overflowing id set. */
+  private readonly summaries = new SummaryCache()
+  private summaryInFlightKey: string | null = null
+  private lastRecentLimit = 12
 
   constructor(private readonly options: ContextSourceOptions) {}
 
@@ -130,6 +148,52 @@ export class ContextSource {
     return lastRouteHint(this.entries)
   }
 
+  /** Whether overflow messages exist and whether their summary is cached. */
+  summaryState(): SummaryState {
+    const plan: SummaryPlanView = planOverflow(
+      this.messages().map((message) => ({ id: message.id, role: message.role, text: message.text })),
+      this.lastRecentLimit,
+    )
+    const cached = this.summaries.get(plan.key)
+    const status = summaryStatus(plan, cached, this.summaryInFlightKey)
+    return { overflowCount: plan.ids.length, cached: status.cached, pending: status.pending, key: plan.key }
+  }
+
+  /**
+   * Compress the overflow once, in the background. Idempotent per message set:
+   * concurrent calls for the same key are ignored, and cached results are reused.
+   * Never throws.
+   */
+  async refreshSummary(): Promise<string | null> {
+    if (this.options.summarize === undefined) return null
+    const messages = this.messages()
+    const plan = planOverflow(
+      messages.map((message) => ({ id: message.id, role: message.role, text: message.text })),
+      this.lastRecentLimit,
+    )
+    const status = summaryStatus(plan, this.summaries.get(plan.key), this.summaryInFlightKey)
+    if (!status.needed) return null
+
+    this.summaryInFlightKey = plan.key
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 12_000)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    try {
+      const clamped = clampSummaryMessages(plan.overflow, { maxChars: 6000 })
+      const text = await this.options.summarize(clamped, controller.signal)
+      if (text !== null && text.trim().length >= MIN_SUMMARY_CHARS) {
+        this.summaries.put(plan.key, text)
+        return text.trim()
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+      this.summaryInFlightKey = null
+    }
+  }
+
   setSelection(note: SelectionNote | null): void {
     this.selection = note === null || note.text.trim().length === 0 ? null : note
   }
@@ -190,6 +254,19 @@ export class ContextSource {
         const projected = projectIncrementally(this.entries, this.cache)
         const revision = projected.messages.length
         if (revision !== this.lastRevision) this.lastRevision = revision
+        this.lastRecentLimit = settings.recentMessageLimit
+
+        // Overflow messages may already be covered by a cached summary (generated
+        // in the background after a previous turn). If not, the bundle is still
+        // valid — it simply carries a `summary-pending` degradation.
+        const plan = planOverflow(
+          projected.messages.map((message) => ({ id: message.id, role: message.role, text: message.text })),
+          settings.recentMessageLimit,
+        )
+        const cachedSummary = settings.autoSummary ? this.summaries.get(plan.key) : null
+        const overflowSummary =
+          cachedSummary === null ? null : { text: cachedSummary, coversMessageIds: plan.ids }
+
         const selection: ContextSelection | null =
           this.selection === null
             ? null
@@ -212,10 +289,14 @@ export class ContextSource {
             autoSummary: settings.autoSummary,
             redactSensitive: settings.redactSensitive,
           },
+          overflowSummary,
           redactOptions: { customPatterns },
           cache: this.projections,
           pins,
         })
+        if (settings.autoSummary && plan.ids.length > 0 && cachedSummary === null) {
+          bundle.stats.degradations.push('summary-pending')
+        }
         // Drop cache entries for messages that fell out of the window.
         const keep = new Set(projected.messages.map((message) => message.id))
         this.projections.prune(keep)

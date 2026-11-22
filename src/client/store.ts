@@ -39,6 +39,7 @@ import {
 import type { HostApi } from './host-api.js'
 import { initialAnswer, reduceAnswer, type AnswerState } from './stream.js'
 import type { ConversationService } from './types.js'
+import { buildHandoffText, writeBack } from './writeback.js'
 
 export interface Toast {
   kind: 'info' | 'ok' | 'error'
@@ -599,6 +600,9 @@ export class SideAskStore {
     if (event.type === 'accepted') {
       // The explicit pins/exclusions applied to this turn are consumed.
       this.set({ pins: [], excludedMessageIds: [], answer: reduceAnswer(this.state.answer, event) })
+      // Opportunistically compress messages that just fell out of the recent
+      // window, so the NEXT question already has the summary.
+      void this.deps.contextSource.refreshSummary()
       return
     }
     this.set({ answer: reduceAnswer(this.state.answer, event) })
@@ -633,6 +637,47 @@ export class SideAskStore {
     if (question.length === 0) return
     this.set({ contextOn: false, answer: initialAnswer(), pending: null })
     await this.send(question)
+  }
+
+  /**
+   * Copy this thread's prefix (up to and including `messageId`) into a new
+   * thread and switch to it. Used by the "分叉" action on an answer.
+   */
+  async forkThread(messageId: string): Promise<void> {
+    const thread = this.state.thread
+    if (thread === null || this.state.threadBusy || this.state.answer.status === 'streaming') return
+    this.set({ threadBusy: true })
+    try {
+      const forked = await this.deps.api.forkThread(thread.id, messageId)
+      this.set({ thread: forked, pending: null, answer: initialAnswer(), contextDetails: null })
+      await this.refreshThreads()
+      this.toast('ok', '已从这条回答分叉出新线程')
+    } catch (error) {
+      this.toast('error', error instanceof Error ? error.message : '分叉失败')
+    } finally {
+      this.set({ threadBusy: false })
+    }
+  }
+
+  /**
+   * Hand an answer to the main conversation as an explicit task. Writes the main
+   * composer draft (never sends): the user stays in control of the main chat.
+   */
+  async handoff(text: string): Promise<void> {
+    const trimmed = text.trim()
+    if (trimmed.length === 0) return
+    const confirmed =
+      typeof window === 'undefined' || typeof window.confirm !== 'function'
+        ? true
+        : window.confirm('把这条结论交给主对话？会写入主对话输入框（不会自动发送）。')
+    if (!confirmed) return
+    const result = await writeBack('draft', buildHandoffText(trimmed), {
+      conversation: this.deps.conversation,
+      getSessionCtx: () => this.deps.contextSource.sessionCtx,
+      confirmDraft: false,
+    })
+    if (result.ok) this.toast('ok', '已写入主对话输入框，确认后发送即可')
+    else this.toast('error', result.note ?? '交给主对话失败')
   }
 
   /** Delete the current thread. */

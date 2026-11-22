@@ -240,6 +240,42 @@ export interface ThreadListEntry {
   messageCount: number
 }
 
+// ------------------------------------------------------- summary & fork (v0.4)
+
+/**
+ * One main-conversation message handed to the summariser. Already redacted by
+ * the client; the host re-sanitises and caps it.
+ */
+export interface SummarizeMessage {
+  id: string
+  role: MessageRole
+  text: string
+}
+
+/** Ask the host to compress messages that fell outside the recent window. */
+export interface SummarizeRequest {
+  apiVersion: number
+  requestId: string
+  messages: SummarizeMessage[]
+  /** Soft target for the summary length (characters). */
+  maxChars?: number
+  /** Same routing metadata semantics as AskRequest.routeHint. */
+  routeHint?: { provider: string; model: string }
+}
+
+export interface SummarizeResponse {
+  apiVersion: number
+  summary: string
+  /** True when the model output was cut at the length cap. */
+  truncated: boolean
+}
+
+/** Fork the side thread from one message (inclusive). */
+export interface ForkResponse {
+  apiVersion: number
+  thread: Thread
+}
+
 export interface BootstrapResponse {
   apiVersion: number
   settings: SideAskConfig

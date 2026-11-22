@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-11-22
+
+Iteration 3 of the competitive-gap plan (see `docs/verification.md` §17).
+
+### Added
+- **History summary layer** (multi-turn context beyond the recent window): after
+  a turn settles, the client compresses the messages that fell out of the recent
+  window through the new host route `POST /summarize` and caches the result by the
+  exact overflowing message-id set (`src/client/summary.ts`). Later questions get
+  the summary inserted at the existing summary budget share (25%); when it is not
+  ready yet the details panel says "历史摘要正在后台生成，本轮先用最近消息"
+  (`summary-pending`). Empty inputs never call the model; failures are silent and
+  never break a question.
+- **Fork a side thread**: "分叉" on an answer copies the thread prefix (up to and
+  including that answer) into a new thread (`ThreadStore.fork`, fresh message ids,
+  remapped `replyTo`, title suffix "· 分叉") and switches to it.
+- **Hand off to the main conversation**: "交给主对话" writes an explicit
+  `请执行以下旁问结论：…` task into the main composer after one confirmation.
+  It never sends automatically and never touches the main conversation otherwise.
+
+### Changed
+- The write-back "as draft" confirmation can be skipped by callers that already
+  confirmed intent (the handoff action), avoiding a double dialog.
+
+### Verified
+- 227/227 tests (13 new host summary/fork tests, 11 summary plan/cache tests,
+  3 handoff/quote-block tests).
+- Real-browser CDP with a seeded answer: 重新生成/分叉/交给主对话/引用 c1 all
+  render; citation jump highlights the injected source paragraph; fork produced
+  `… · 分叉` with 2 messages and switched threads; handoff wrote
+  `请执行以下旁问结论：…` into the real main composer (inside the app's shadow
+  root); `/summarize` empty → 200 `""` (no model call), non-empty without
+  credentials → 502 `MISSING_CREDENTIAL`, bad fork id → 404; 0 console errors /
+  0 uncaught exceptions.
+
 ## [0.3.0] — 2026-11-22
 
 Iteration 2 of the competitive-gap plan (see `docs/verification.md` §16).

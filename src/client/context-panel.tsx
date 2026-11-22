@@ -29,6 +29,7 @@ const REASON_TEXT: Record<string, string> = {
 
 const DEGRADATION_TEXT: Record<string, string> = {
   'summary-dropped-for-recent': '丢弃了历史摘要，优先保留最近的对话',
+  'summary-pending': '历史摘要正在后台生成，本轮先用最近消息',
   'recent-trimmed': '最近消息被预算截断',
   'pins-trimmed': '钉住的消息超出预算，部分被丢弃',
   'question-only': '没有可用上下文，仅基于问题回答',
@@ -102,6 +103,12 @@ export function ContextPanel({ store, state, contextSource, onClose }: ContextPa
             <span>钉住 / 选中</span>
             <b>
               {stats.pinnedTokens} / {stats.selectionTokens} token
+            </b>
+          </div>
+          <div className="sa-kv">
+            <span>历史摘要</span>
+            <b>
+              {stats.summaryTokens > 0 ? `${stats.summaryTokens} token` : '无（窗口内消息已覆盖）'}
             </b>
           </div>
         </>

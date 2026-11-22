@@ -20,6 +20,9 @@ import type {
   Citation,
   ModelsResponse,
   SideAskError,
+  SummarizeMessage,
+  SummarizeRequest,
+  SummarizeResponse,
   Thread,
   ThreadMessage,
   ThreadListEntry,
@@ -29,6 +32,13 @@ import { finaliseAnswer } from '../shared/citations.js'
 import { makeError } from '../shared/errors.js'
 import { buildPrompt } from '../shared/prompt.js'
 import { redact } from '../shared/redact.js'
+import {
+  SUMMARY_MAX_INPUT_CHARS,
+  SUMMARY_MAX_MESSAGES,
+  buildSummaryInstruction,
+  clampSummaryMessages,
+  DEFAULT_SUMMARY_MAX_CHARS,
+} from '../shared/summarize.js'
 import { MESSAGE_OVERHEAD_TOKENS, estimateTokens } from '../shared/tokens.js'
 import { readConfig, toSettings, type HostConfig } from './config.js'
 import {
@@ -57,6 +67,40 @@ const MAX_SUMMARY_CHARS = 8000
 const MAX_SELECTION_CHARS = 8000
 const MAX_ITEMS = 64
 const ROLES = new Set(['user', 'assistant', 'system', 'tool', 'developer'])
+
+/**
+ * Summariser call parameters.
+ *
+ * A summary is a mechanical compression, not creative writing: a low temperature
+ * keeps it deterministic, a 500-token cap cannot produce an essay, and the
+ * 12 s wall clock bounds the client's "summarising…" indicator even when a
+ * provider stalls (the /ask ceiling is config-driven and much longer).
+ */
+const SUMMARY_TEMPERATURE = 0.1
+const SUMMARY_MAX_TOKENS = 500
+const SUMMARY_TIMEOUT_MS = 12_000
+/** At most one fallback, so a broken route cannot multiply the 12 s timeout. */
+const SUMMARY_MAX_ATTEMPTS = 2
+/** Output-length clamp for the contract's soft `maxChars` target. */
+const SUMMARY_MIN_OUTPUT_CHARS = 120
+const SUMMARY_MAX_OUTPUT_CHARS = 2000
+/** Only these roles carry a main-conversation exchange worth compressing. */
+const SUMMARY_ROLES = new Set(['user', 'assistant'])
+
+/**
+ * Terminal failure of {@link SideAskRuntime.summarize}.
+ *
+ * `/ask` reports failures as SSE events; `/summarize` is a plain JSON route and
+ * has no event channel, so the contract error travels as an exception and the
+ * HTTP layer maps it to 502. Anything else escaping `summarize` is a bug and is
+ * surfaced as 500.
+ */
+export class SummaryLlmError extends Error {
+  constructor(readonly error: SideAskError) {
+    super(error.message)
+    this.name = 'SummaryLlmError'
+  }
+}
 
 /** Minimal async producer/consumer bridge used to stream model deltas. */
 class AsyncQueue<T> {
@@ -255,6 +299,52 @@ function readRouteHint(value: unknown): RouteHint | null {
 }
 
 /**
+ * Re-validate the browser-supplied messages of a summarise request.
+ *
+ * Same rule as the context bundle: the browser is a convenience, not an
+ * authority. Anything malformed (non-object entry, non-string id/text, a role
+ * that cannot appear in a visible transcript) is dropped rather than guessed at,
+ * so the model only ever sees well-formed numbered lines.
+ */
+function sanitizeSummaryMessages(raw: unknown): SummarizeMessage[] {
+  if (!Array.isArray(raw)) return []
+  const messages: SummarizeMessage[] = []
+  for (const candidate of raw) {
+    if (candidate === null || typeof candidate !== 'object') continue
+    const record = candidate as Record<string, unknown>
+    const id = asString(record['id'], 200)
+    const text = asString(record['text'], SUMMARY_MAX_INPUT_CHARS)
+    const role = record['role']
+    if (id === null || id.length === 0 || text === null || text.trim().length === 0) continue
+    if (typeof role !== 'string' || !SUMMARY_ROLES.has(role)) continue
+    messages.push({ id, role: role as SummarizeMessage['role'], text })
+  }
+  // No count cap here: `clampSummaryMessages` caps to the NEWEST 40, and
+  // truncating early would keep the oldest 40 of a long list instead. The body
+  // size cap bounds how many entries can arrive at all.
+  return messages
+}
+
+/**
+ * Clamp the contract's soft `maxChars` target.
+ *
+ * `buildSummaryInstruction` already floors its own prompt at 120, but the host
+ * also enforces the ceiling when slicing the answer, so the accepted range lives
+ * here: [120, 2000], defaulting to `DEFAULT_SUMMARY_MAX_CHARS`. Non-numbers fall
+ * back to the default instead of becoming `NaN` in arithmetic.
+ */
+function readSummaryMaxChars(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number.NaN
+  if (!Number.isFinite(numeric)) return DEFAULT_SUMMARY_MAX_CHARS
+  return Math.min(SUMMARY_MAX_OUTPUT_CHARS, Math.max(SUMMARY_MIN_OUTPUT_CHARS, Math.trunc(numeric)))
+}
+
+/** The model input: one numbered line per message, compact and unambiguous. */
+function summaryInput(messages: SummarizeMessage[]): string {
+  return messages.map((message, index) => `${index + 1}. [${message.id}] ${message.role}: ${message.text}`).join('\n')
+}
+
+/**
  * Choose the failure to report when every candidate route failed.
  *
  * Reporting the LAST failure hides the actionable one: the first attempt usually
@@ -384,6 +474,11 @@ export class SideAskRuntime {
     return this.store.truncate(threadId, fromMessageId)
   }
 
+  /** Copy a thread prefix into a new thread. Null ⇒ unknown thread OR message. */
+  forkThread(threadId: string, fromMessageId: string): Thread | null {
+    return this.store.fork(threadId, fromMessageId)
+  }
+
   /**
    * Lazy model catalogue for the in-window picker.
    *
@@ -416,6 +511,120 @@ export class SideAskRuntime {
 
   flush(): void {
     this.store.flush()
+  }
+
+  /**
+   * Compress a batch of main-conversation messages into one short summary.
+   *
+   * A plain JSON call, not a stream: the client only injects the finished text
+   * into a later prompt, so partial output has no use. The failure channel is
+   * therefore an exception ({@link SummaryLlmError}) rather than an event.
+   *
+   * Bounds, in the order they are applied:
+   * 1. malformed entries/roles are dropped (the browser is not a trust boundary);
+   * 2. at most 40 messages and 8000 input characters survive;
+   * 3. an empty result answers `''` **without** a model call — an all-invalid
+   *    payload is not worth a provider round-trip;
+   * 4. the route list is walked with at most one fallback (only before any
+   *    token), under a 12 s wall clock;
+   * 5. the answer is trimmed and sliced to the clamped `maxChars`, and
+   *    `truncated` records that slicing.
+   */
+  async summarize(request: SummarizeRequest, signal?: AbortSignal): Promise<SummarizeResponse> {
+    // The HTTP layer parses JSON but cannot type-check it; `?? {}` keeps a
+    // nullish body from throwing before the sanitising below.
+    const body = (request ?? {}) as Partial<SummarizeRequest>
+    const maxChars = readSummaryMaxChars(body.maxChars)
+    const messages = clampSummaryMessages(sanitizeSummaryMessages(body.messages), {
+      maxMessages: SUMMARY_MAX_MESSAGES,
+      maxChars: SUMMARY_MAX_INPUT_CHARS,
+    })
+    const empty: SummarizeResponse = { apiVersion: API_VERSION, summary: '', truncated: false }
+    if (messages.length === 0) return empty
+
+    const config = this.config()
+    const llm = this.llm()
+    if (llm === undefined) throw new SummaryLlmError(makeError('NO_ADAPTER', '宿主未提供模型服务（ctx.llm 不可用）'))
+    const candidates = candidateRoutes(config, llm, this.defaultModel(), readRouteHint(body.routeHint))
+    if (candidates.length === 0) {
+      throw new SummaryLlmError(
+        makeError('NO_ADAPTER', '没有可用的模型路由：请在插件设置里指定 provider/model，或在宿主里选一个默认模型'),
+      )
+    }
+
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, SUMMARY_TIMEOUT_MS)
+    timer.unref?.()
+    const onAbort = (): void => controller.abort()
+    if (signal !== undefined) {
+      if (signal.aborted) controller.abort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
+      const instruction = buildSummaryInstruction(maxChars)
+      const input = summaryInput(messages)
+      let collected = ''
+      let result: CallResult | null = null
+      const failures: SideAskError[] = []
+
+      // The retry predicate is ask's: advance to the next route only when the
+      // failure is adapter-shaped AND no token was produced, so a fallback can
+      // never duplicate or replay text.
+      for (const candidate of candidates.slice(0, SUMMARY_MAX_ATTEMPTS)) {
+        let producedDelta = false
+        collected = ''
+        result = await callModel(
+          llm,
+          { provider: candidate.provider, model: candidate.model },
+          {
+            instruction,
+            body: input,
+            signal: controller.signal,
+            maxTokens: SUMMARY_MAX_TOKENS,
+            temperature: SUMMARY_TEMPERATURE,
+          },
+          (delta) => {
+            producedDelta = true
+            collected += delta
+          },
+        )
+        if (result.failure === null) break
+        failures.push(result.failure)
+        const retryableRoute =
+          !producedDelta &&
+          (result.failure.code === 'MISSING_CREDENTIAL' ||
+            result.failure.code === 'NO_ADAPTER' ||
+            result.failure.code === 'AUTH')
+        if (!retryableRoute) break
+      }
+
+      if (result === null) throw new SummaryLlmError(makeError('NO_ADAPTER', '没有可用的模型路由'))
+      if (result.failure !== null) {
+        const failure =
+          result.failure.code === 'ABORTED' && timedOut
+            ? makeError('TIMEOUT', '摘要请求超时')
+            : decorateCredentialFailure(pickFailure(failures) ?? result.failure)
+        throw new SummaryLlmError(failure)
+      }
+
+      // `trim()` first so the client never injects padding-only summary text, then
+      // slice to the contract ceiling. `truncated` also covers the model's own
+      // max-tokens stop, so a cut answer is never passed off as complete.
+      const summary = collected.trim().slice(0, maxChars)
+      return {
+        apiVersion: API_VERSION,
+        summary,
+        truncated: result.truncated || collected.trim().length >= maxChars,
+      }
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
   }
 
   /**
