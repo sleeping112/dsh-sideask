@@ -86,7 +86,8 @@ Adds a floating side-chat window for DeepSeek Harness.
 - Manifest: dsh.bundle + cordis.patch.yml (installable via `dsh plugin add`)
 - Category: ui — a floating chat window inside the web UI
 - Icon + screenshots are declared in the repository (screenshots.json)
-- Verified on dsh 0.2.2-rc.1; 241 tests; CI green on master
+- Prebuilt tarball attached to the v0.6.1 release (version-free asset name)
+- 241 tests; CI green on master
 ```
 
 Only that one file belongs in the diff. CI checks, in order: entry count,
