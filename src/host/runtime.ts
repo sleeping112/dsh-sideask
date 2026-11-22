@@ -274,7 +274,6 @@ export function sanitizeBundle(raw: unknown, config: HostConfig): ContextBundle 
       budgetTokens: budget,
       questionTokens: 0,
       selectionTokens: items.filter((item) => item.source === 'selection').reduce((sum, item) => sum + item.tokens, 0),
-      pinnedTokens: items.filter((item) => item.source === 'pinned').reduce((sum, item) => sum + item.tokens, 0),
       recentTokens: items.filter((item) => item.source === 'recent').reduce((sum, item) => sum + item.tokens, 0),
       summaryTokens: summary === null ? 0 : estimateTokens(summary),
       usedTokens: used,

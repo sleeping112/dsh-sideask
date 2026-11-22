@@ -756,5 +756,52 @@ errors: 0 | exceptions: 0
 导出 Markdown、token/费用面板、图片/语音输入；跨会话条目目前只能"钉住"，
 还不能像 #Past Chats 那样按关键词搜索历史。
 
+---
+
+## 19. v0.6.0（2026-11-22）：移除钉住 + 悬浮球可拖动
+
+### 19.1 需求
+
+1. 删除「钉住」功能；
+2. 悬浮球（关闭态入口按钮）改为可拖动。
+
+### 19.2 真机验证（隔离实例 + headless Edge + CDP，真实鼠标事件）
+
+```
+pill docked        {"x":800,"y":110,"w":82,"h":32}
+window closed      {"closed":true}
+pill dragged       {"x":379,"y":304,"w":82,"h":32}     ← 拖动后左上角
+drag result        {"cx":true,"cy":true,"windowStillClosed":true,
+                    "stored":{"schema":3,…,"pillFree":{"x":379,"y":304}}}
+after reload       {"x":379,"y":304,"w":82,"h":32}     ← 刷新后位置保留
+persisted position {"same":true}
+click opens        {"open":true}                       ← 拖动后再单击仍能打开
+pins removed       {"pinWords":0,"pinButton":false,"pinsPanel":false}
+details rows       {"rows":["读取状态…","模型…","投影缓存命中 / 未命中0 / 0"],"pinnedRow":false}
+errors: 0 | exceptions: 0
+```
+
+判定说明：拖动保留"抓取点"的相对位置，所以断言的是**中心点**落到 (420,320)，
+而不是左上角；数字与预期一致。
+
+### 19.3 实现要点
+
+- 拖动：`pointerdown/move/up` + `setPointerCapture`，4px 阈值区分点击与拖动，
+  拖动后吞掉一次 click（避免弹窗）；位置用 `movePill()` 夹紧到视口内；
+- 持久化：`WindowState.pillFree`，`schema` 升到 3，`serialize/restore` 兼容
+  `schema:2`（旧数据 → 停靠状态）；右键 `resetPill()` 复位到角落；
+- 删除钉住：contract（`pinned` source / `pinnedTokens`）、context（`pins` 输入、
+  35% 预算、`pins-trimmed`）、prompt（`用户钉住`）、store、context-source、
+  UI（面板/按钮/chip/跨会话只读）与测试全部清理；上下文只剩
+  选中 > 最近窗口 > 摘要 三个来源；
+- 悬浮球尺寸在渲染后实测（`useLayoutEffect` + `getBoundingClientRect`），
+  夹紧逻辑使用真实尺寸而不是猜测值。
+
+### 19.4 仍未做（历史候选）
+
+导出 Markdown、token/费用面板、图片/语音输入、跨会话关键词搜索。
+（跨会话只读随钉住面板一起移除了；如果以后需要，应以"引用"而不是"钉住"
+的形式重新设计。）
+
 
 

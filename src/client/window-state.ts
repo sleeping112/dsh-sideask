@@ -22,7 +22,11 @@ import type { DockCorner } from '../shared/contract.js'
  * without `schema: 2` is ignored (one-time migration to the configured default).
  */
 export const WINDOW_STORAGE_KEY = 'dsh-sideask.window.v2'
-export const WINDOW_STORAGE_SCHEMA = 2
+/**
+ * v3 adds `pillFree` (the entrance pill can be dragged to an arbitrary spot).
+ * A v2 record is still restored (one-time migration: the pill starts docked).
+ */
+export const WINDOW_STORAGE_SCHEMA = 3
 
 export const MIN_WIDTH = 300
 export const MIN_HEIGHT = 320
@@ -74,7 +78,20 @@ export interface WindowState {
   height: number
   minimized: boolean
   collapsed: boolean
+  /**
+   * Absolute top-left of the entrance pill once the user dragged it; `null`
+   * means "docked to `corner`" (the default, and what resets it).
+   */
+  pillFree: Point | null
 }
+
+/** Measured size of the entrance pill (needed to clamp a free position). */
+export interface PillSize {
+  width: number
+  height: number
+}
+
+export const PILL_FALLBACK_SIZE: PillSize = { width: 96, height: 34 }
 
 export interface Viewport {
   width: number
@@ -88,6 +105,47 @@ export interface Point {
 
 export const CORNERS: DockCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right']
 
+/** Keep the pill fully inside the viewport (a 0-size viewport keeps it at 0,0). */
+export function clampPill(point: Point, viewport: Viewport, size: PillSize): Point {
+  const maxX = Math.max(0, viewport.width - size.width)
+  const maxY = Math.max(0, viewport.height - size.height)
+  return {
+    x: Math.min(maxX, Math.max(0, Math.round(point.x))),
+    y: Math.min(maxY, Math.max(0, Math.round(point.y))),
+  }
+}
+
+/**
+ * Concrete top-left of the entrance pill: the dragged position when set,
+ * otherwise the docked corner (using the configured `pillOffset` top).
+ */
+export function pillPosition(
+  state: WindowState,
+  viewport: Viewport,
+  size: PillSize = PILL_FALLBACK_SIZE,
+  options: { edge?: number; top?: number } = {},
+): { left: number; top: number } {
+  if (state.pillFree !== null) {
+    const clamped = clampPill(state.pillFree, viewport, size)
+    return { left: clamped.x, top: clamped.y }
+  }
+  const edge = options.edge ?? PILL_MARGIN
+  const style = pillStyle(state.corner, options)
+  const left = style.left !== undefined ? style.left : viewport.width - size.width - (style.right ?? edge)
+  const top = style.top !== undefined ? style.top : viewport.height - size.height - (style.bottom ?? edge)
+  return { left: Math.round(left), top: Math.round(top) }
+}
+
+/** Move the pill to an absolute position (clamped) and remember it. */
+export function movePill(state: WindowState, left: number, top: number, viewport: Viewport, size: PillSize = PILL_FALLBACK_SIZE): WindowState {
+  return { ...state, pillFree: clampPill({ x: left, y: top }, viewport, size) }
+}
+
+/** Re-dock the pill to the window's corner (keeps the window geometry). */
+export function resetPill(state: WindowState): WindowState {
+  return { ...state, pillFree: null }
+}
+
 export function defaultState(corner: DockCorner = 'top-right'): WindowState {
   return {
     corner,
@@ -97,6 +155,7 @@ export function defaultState(corner: DockCorner = 'top-right'): WindowState {
     height: DEFAULT_HEIGHT,
     minimized: false,
     collapsed: false,
+    pillFree: null,
   }
 }
 
@@ -246,6 +305,7 @@ export function serialize(state: WindowState): string {
     height: state.height,
     minimized: state.minimized,
     collapsed: state.collapsed,
+    pillFree: state.pillFree,
   })
 }
 
@@ -257,8 +317,15 @@ export function restore(raw: string | null | undefined, viewport: Viewport, fall
     if (parsed === null || typeof parsed !== 'object') return clampOffset(base, viewport)
     // A v1 record (no schema) is ignored on purpose: v1 pinned the initial
     // default corner on first mount, so honouring it would defeat the configured
-    // default. This is the one-time migration.
-    if (parsed['schema'] !== WINDOW_STORAGE_SCHEMA) return clampOffset(base, viewport)
+    // default. This is the one-time migration. v2 records (schema 2) are still
+    // accepted and simply start with a docked pill.
+    const schema = parsed['schema']
+    if (schema !== 2 && schema !== WINDOW_STORAGE_SCHEMA) return clampOffset(base, viewport)
+    const freeRaw = parsed['pillFree']
+    const pillFree =
+      typeof freeRaw === 'object' && freeRaw !== null && typeof (freeRaw as Point).x === 'number' && typeof (freeRaw as Point).y === 'number'
+        ? clampPill({ x: (freeRaw as Point).x, y: (freeRaw as Point).y }, viewport, PILL_FALLBACK_SIZE)
+        : null
     const state: WindowState = {
       corner: isCorner(parsed['corner']) ? parsed['corner'] : fallbackCorner,
       x: num(parsed['x'], base.x, 0, Math.max(0, viewport.width)),
@@ -267,6 +334,7 @@ export function restore(raw: string | null | undefined, viewport: Viewport, fall
       height: num(parsed['height'], base.height, MIN_HEIGHT, Math.max(MIN_HEIGHT, viewport.height)),
       minimized: parsed['minimized'] === true,
       collapsed: parsed['collapsed'] === true,
+      pillFree,
     }
     return clampOffset(state, viewport)
   } catch {
@@ -276,6 +344,9 @@ export function restore(raw: string | null | undefined, viewport: Viewport, fall
 
 /** True when two states would render the same (used to skip redundant writes). */
 export function sameState(left: WindowState, right: WindowState): boolean {
+  const samePill =
+    (left.pillFree === null && right.pillFree === null) ||
+    (left.pillFree !== null && right.pillFree !== null && left.pillFree.x === right.pillFree.x && left.pillFree.y === right.pillFree.y)
   return (
     left.corner === right.corner &&
     left.x === right.x &&
@@ -283,6 +354,7 @@ export function sameState(left: WindowState, right: WindowState): boolean {
     left.width === right.width &&
     left.height === right.height &&
     left.minimized === right.minimized &&
-    left.collapsed === right.collapsed
+    left.collapsed === right.collapsed &&
+    samePill
   )
 }

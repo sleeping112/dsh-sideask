@@ -31,7 +31,6 @@ const DEGRADATION_TEXT: Record<string, string> = {
   'summary-dropped-for-recent': '丢弃了历史摘要，优先保留最近的对话',
   'summary-pending': '历史摘要正在后台生成，本轮先用最近消息',
   'recent-trimmed': '最近消息被预算截断',
-  'pins-trimmed': '钉住的消息超出预算，部分被丢弃',
   'question-only': '没有可用上下文，仅基于问题回答',
   'context-disabled': '上下文读取被关闭',
   'extraction-failed': '上下文提取失败',
@@ -100,10 +99,8 @@ export function ContextPanel({ store, state, contextSource, onClose }: ContextPa
             </b>
           </div>
           <div className="sa-kv">
-            <span>钉住 / 选中</span>
-            <b>
-              {stats.pinnedTokens} / {stats.selectionTokens} token
-            </b>
+            <span>选中上下文</span>
+            <b>{stats.selectionTokens} token</b>
           </div>
           <div className="sa-kv">
             <span>历史摘要</span>
@@ -128,7 +125,7 @@ export function ContextPanel({ store, state, contextSource, onClose }: ContextPa
                 />
                 <span className="sa-ctx-ref">{item.ref}</span>
                 <span className="sa-ctx-src">
-                  {item.source === 'selection' ? '选中' : item.source === 'pinned' ? '钉住' : item.role === 'assistant' ? 'AI' : '我'}
+                  {item.source === 'selection' ? '选中' : item.role === 'assistant' ? 'AI' : '我'}
                 </span>
                 <span className="sa-ctx-text">{excerpt(item.text, 90)}</span>
               </label>

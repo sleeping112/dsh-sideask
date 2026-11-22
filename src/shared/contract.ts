@@ -51,7 +51,7 @@ export interface TranscriptSnapshot {
 
 // ------------------------------------------------------------------- context
 
-export type ContextSource = 'selection' | 'pinned' | 'recent' | 'summary'
+export type ContextSource = 'selection' | 'recent' | 'summary'
 
 /** One budgeted unit handed to the model under a stable short reference. */
 export interface ContextItem {
@@ -70,8 +70,6 @@ export interface ContextStats {
   budgetTokens: number
   questionTokens: number
   selectionTokens: number
-  /** Tokens used by messages the user pinned explicitly (`#` references). */
-  pinnedTokens: number
   recentTokens: number
   summaryTokens: number
   usedTokens: number

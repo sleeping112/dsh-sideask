@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-11-22
+
+### Removed
+- **Pin (`钉住`) feature, end to end**: the composer pin chips, the `#` pin picker,
+  the cross-session "其它会话（只读）" section that lived in it, the `pinned`
+  context source, the pinned budget share/`pinnedTokens` stat, and the
+  `用户钉住` prompt label. Context now has exactly three sources: selection,
+  recent window and summary. The details panel keeps its per-item exclusion
+  checkboxes (a separate feature).
+  - Reason: the pin surface duplicated what "select text" already does, and it
+    was the most crowded part of the UI.
+
+### Added
+- **Draggable entrance pill**: the floating pill can be dragged anywhere in the
+  viewport (pointer drag with a 4 px threshold so taps stay taps), and the
+  position is persisted with the rest of the window geometry
+  (`schema: 3`, `pillFree`). A drag never opens the window; a plain click does.
+  Right-click re-docks it to the window corner. Free positions are clamped on
+  restore and on viewport resize. Old `schema: 2` records are still accepted
+  (the pill simply starts docked).
+
+### Verified
+- 241/241 tests (6 new pill tests; 4 obsolete pin tests removed).
+- Real-browser CDP: docked pill at (800,110) dragged so its centre sat at
+  (420,320) (`cx:true, cy:true`), window stayed closed during the drag,
+  `pillFree:{x:379,y:304}` persisted in `schema:3`, the position survived a page
+  reload, and a plain click still opened the window; the shadow root contains no
+  "钉住" text, no pin button and no pin panel; the details panel no longer shows
+  a pinned row; 0 console errors / 0 uncaught exceptions.
+
 ## [0.5.0] — 2026-11-22
 
 Iteration 4 of the competitive-gap plan (see `docs/verification.md` §18).

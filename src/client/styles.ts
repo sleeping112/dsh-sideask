@@ -195,10 +195,7 @@ export const PANEL_CSS = `
 .sa-menu-actions { display: flex; gap: 5px; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--sa-border); }
 .sa-menu-actions .sa-chip:disabled { opacity: .45; cursor: default; }
 
-/* Pins + model rows under the composer toolbar. */
-.sa-pins { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px 0; }
-.sa-pins .sa-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sa-pins .sa-chip[data-kind="pin"] { border-color: var(--sa-accent); }
+/* Rows under the composer toolbar (model / templates). */
 .sa-ctxline { display: flex; gap: 4px; padding: 4px 8px 0; }
 .sa-ctxline .sa-chip { font-size: 10.5px; }
 

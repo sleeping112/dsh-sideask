@@ -24,8 +24,6 @@ export interface ThreadViewProps {
   state: UiState
   conversation: ConversationService | undefined
   contextSource: ContextSource
-  /** Open the `#` pin picker (owned by the window shell). */
-  onOpenPins: () => void
   /** Open the model picker (owned by the window shell). */
   onOpenModels: () => void
   /** Open the quick-template picker (owned by the window shell). */
@@ -373,13 +371,11 @@ function ErrorState({ store, state }: { store: SideAskStore; state: UiState }): 
 function Composer({
   store,
   state,
-  onOpenPins,
   onOpenModels,
   onOpenTemplates,
 }: {
   store: SideAskStore
   state: UiState
-  onOpenPins: () => void
   onOpenModels: () => void
   onOpenTemplates: () => void
 }): React.ReactElement {
@@ -426,35 +422,7 @@ function Composer({
           {state.extracting ? '整理上下文…' : `${tokens}/${budget} token`}
         </span>
       </div>
-      {state.pins.length > 0 ? (
-        <div className="sa-pins" data-testid="sideask-pins">
-          {state.pins.map((pin) => (
-            <button
-              key={pin.messageId}
-              type="button"
-              className="sa-chip"
-              data-kind="pin"
-              title={`${pin.messageId}｜${pin.text.slice(0, 80)}（点击取消钉住）`}
-              onClick={() => store.togglePin({ id: pin.messageId, role: pin.role, text: pin.text })}
-            >
-              # {pin.role === 'assistant' ? 'AI' : '我'} · {pin.text.replace(/\s+/g, ' ').trim().slice(0, 18)}
-            </button>
-          ))}
-          <button type="button" className="sa-chip" onClick={() => store.clearPins()}>
-            清空
-          </button>
-        </div>
-      ) : null}
       <div className="sa-ctxline">
-        <button
-          type="button"
-          className="sa-chip"
-          data-testid="sideask-pin-button"
-          onClick={onOpenPins}
-          title="钉住主对话中的消息，作为本次提问的高优先级上下文"
-        >
-          ＃ 钉住
-        </button>
         <button
           type="button"
           className="sa-chip"
@@ -513,7 +481,6 @@ export function ThreadView({
   state,
   conversation,
   contextSource,
-  onOpenPins,
   onOpenModels,
   onOpenTemplates,
 }: ThreadViewProps): React.ReactElement {
@@ -589,7 +556,6 @@ export function ThreadView({
       <Composer
         store={store}
         state={state}
-        onOpenPins={onOpenPins}
         onOpenModels={onOpenModels}
         onOpenTemplates={onOpenTemplates}
       />

@@ -6,16 +6,21 @@ import {
   DEFAULT_WIDTH,
   MIN_HEIGHT,
   MIN_WIDTH,
+  PILL_FALLBACK_SIZE,
   SNAP_DISTANCE,
   WINDOW_STORAGE_KEY,
   applyDrag,
   applyResize,
   clampGeometry,
+  clampPill,
   computePosition,
   defaultState,
   fromPosition,
+  movePill,
+  pillPosition,
   pillStyle,
   release,
+  resetPill,
   restore,
   serialize,
   toggleCollapsed,
@@ -164,4 +169,76 @@ test('restore clamps a saved position that no longer fits the viewport', () => {
   const restored = restore(raw, { width: 640, height: 480 })
   const position = computePosition(restored, { width: 640, height: 480 })
   assert.ok(position.left >= 0 && position.top >= 0)
+})
+
+// ------------------------------------------------------- draggable entrance pill
+
+test('defaultState starts with a docked pill (pillFree = null)', () => {
+  assert.equal(defaultState().pillFree, null)
+})
+
+test('pillPosition docks to each corner when the pill is not dragged', () => {
+  const size = { width: 96, height: 34 }
+  const topRight = pillPosition({ ...defaultState('top-right') }, VIEWPORT, size, { top: 110 })
+  assert.equal(topRight.left, VIEWPORT.width - size.width - 18)
+  assert.equal(topRight.top, 110)
+  const topLeft = pillPosition({ ...defaultState('top-left') }, VIEWPORT, size, { top: 110 })
+  assert.equal(topLeft.left, 18)
+  assert.equal(topLeft.top, 110)
+  const bottomRight = pillPosition({ ...defaultState('bottom-right') }, VIEWPORT, size)
+  assert.equal(bottomRight.top, VIEWPORT.height - size.height - 18)
+  const bottomLeft = pillPosition({ ...defaultState('bottom-left') }, VIEWPORT, size)
+  assert.equal(bottomLeft.left, 18)
+})
+
+test('clampPill keeps the pill fully inside the viewport', () => {
+  const size = PILL_FALLBACK_SIZE
+  assert.deepEqual(clampPill({ x: -50, y: -50 }, VIEWPORT, size), { x: 0, y: 0 })
+  assert.deepEqual(clampPill({ x: 99999, y: 99999 }, VIEWPORT, size), {
+    x: VIEWPORT.width - size.width,
+    y: VIEWPORT.height - size.height,
+  })
+})
+
+test('movePill remembers a clamped free position and resetPill re-docks it', () => {
+  const moved = movePill(defaultState('top-right'), 300, 200, VIEWPORT, PILL_FALLBACK_SIZE)
+  assert.deepEqual(moved.pillFree, { x: 300, y: 200 })
+  const position = pillPosition(moved, VIEWPORT, PILL_FALLBACK_SIZE)
+  assert.equal(position.left, 300)
+  assert.equal(position.top, 200)
+  assert.equal(resetPill(moved).pillFree, null)
+  // The window geometry must not change when the pill is dragged.
+  assert.equal(moved.corner, 'top-right')
+  assert.equal(moved.width, moved.width)
+})
+
+test('serialize/restore round-trips the free pill position', () => {
+  const state = movePill(defaultState('bottom-left'), 500, 300, VIEWPORT, PILL_FALLBACK_SIZE)
+  const restored = restore(serialize(state), VIEWPORT)
+  assert.deepEqual(restored.pillFree, { x: 500, y: 300 })
+})
+
+test('a v2 record (without pillFree) is still accepted with a docked pill', () => {
+  const v2 = JSON.stringify({
+    schema: 2,
+    corner: 'bottom-right',
+    x: 18,
+    y: 18,
+    width: 360,
+    height: 420,
+    minimized: false,
+    collapsed: false,
+  })
+  const restored = restore(v2, VIEWPORT)
+  assert.equal(restored.corner, 'bottom-right')
+  assert.equal(restored.width, 360)
+  assert.equal(restored.pillFree, null)
+})
+
+test('restore clamps a persisted free pill that no longer fits', () => {
+  const state = movePill(defaultState(), 500, 300, VIEWPORT, PILL_FALLBACK_SIZE)
+  const restored = restore(serialize(state), { width: 320, height: 240 })
+  assert.ok((restored.pillFree?.x ?? 0) >= 0)
+  assert.ok((restored.pillFree?.x ?? 0) <= 320 - PILL_FALLBACK_SIZE.width)
+  assert.ok((restored.pillFree?.y ?? 0) <= 240 - PILL_FALLBACK_SIZE.height)
 })

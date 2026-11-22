@@ -16,7 +16,7 @@
  */
 
 import type { ChatMessage, ContextBundle, ContextSelection, SideAskSettings, SummarizeMessage } from '../shared/contract.js'
-import { ProjectionCache, buildContext, buildQuestionOnlyBundle, type PinnedInput } from '../shared/context.js'
+import { ProjectionCache, buildContext, buildQuestionOnlyBundle } from '../shared/context.js'
 import { MIN_SUMMARY_CHARS, clampSummaryMessages } from '../shared/summarize.js'
 import type { SessionsService, SessionBinding } from './types.js'
 import { entriesToMessages, lastRouteHint, projectIncrementally } from './transcript.js'
@@ -168,70 +168,6 @@ export class ContextSource {
     return entriesToMessages(this.entries)
   }
 
-  /** The newest `limit` main-conversation messages (for the `#` pin picker). */
-  recentMessages(limit = 20): ChatMessage[] {
-    const count = Math.max(1, Math.min(60, Math.trunc(limit)))
-    return entriesToMessages(this.entries).slice(-count)
-  }
-
-  /** Other sessions that can be referenced read-only (`#Past Chats` style). */
-  otherSessions(): Array<{ id: string; title: string }> {
-    const sessions = this.options.sessions
-    if (sessions === undefined) return []
-    try {
-      const snapshot = sessions.list.getSnapshot() as {
-        ids?: string[]
-        byId?: Record<string, { displayTitle?: unknown; title?: unknown }>
-      }
-      const ids = Array.isArray(snapshot.ids) ? snapshot.ids : []
-      return ids
-        .filter((id) => typeof id === 'string' && id.length > 0 && id !== this.sessionId)
-        .slice(0, 20)
-        .map((id) => {
-          const row = snapshot.byId?.[id]
-          const title = typeof row?.displayTitle === 'string' ? row.displayTitle : typeof row?.title === 'string' ? row.title : ''
-          return { id, title: title.length > 0 ? title : `对话 ${id.slice(0, 8)}` }
-        })
-    } catch {
-      return []
-    }
-  }
-
-  /**
-   * Read another session's visible messages WITHOUT adopting it (retain, read,
-   * release). Bounded by a short timeout so a cold session cannot stall the UI.
-   */
-  async readSessionMessages(sessionId: string, limit = 20): Promise<ChatMessage[] | null> {
-    const sessions = this.options.sessions
-    if (sessions === undefined) return null
-    if (sessionId === this.sessionId) return this.recentMessages(limit)
-    let reference: { ready?: Promise<SessionBinding>; release?: () => void } | null = null
-    try {
-      reference = sessions.retain(sessionId, { source: 'dsh-sideask:past' }) as unknown as {
-        ready?: Promise<SessionBinding>
-        release?: () => void
-      }
-      const binding = await Promise.race([
-        Promise.resolve(reference.ready),
-        new Promise<null>((resolve) => {
-          const handle = setTimeout(() => resolve(null), 2500)
-          ;(handle as unknown as { unref?: () => void }).unref?.()
-        }),
-      ])
-      if (binding === null || binding === undefined) return null
-      const count = Math.max(1, Math.min(60, Math.trunc(limit)))
-      return entriesToMessages(binding.eventSource.getSnapshot().entries).slice(-count)
-    } catch {
-      return null
-    } finally {
-      try {
-        reference?.release?.()
-      } catch {
-        // Already released by its own scope.
-      }
-    }
-  }
-
   /**
    * Provider/model the main conversation is using.
    *
@@ -314,28 +250,9 @@ export class ContextSource {
     settings: SideAskSettings,
     signal: AbortSignal,
     customPatterns: string[] = [],
-    pins: PinnedInput[] = [],
   ): Promise<ExtractionResult> {
     if (!settings.readContext) return { bundle: buildQuestionOnlyBundle(question, settings), reason: 'disabled' }
     if (this.binding === null || this.sessionId === null) {
-      // No bound session: explicit pins are still usable (they come from the UI,
-      // not from the transcript), so keep them instead of dropping everything.
-      if (pins.length > 0) {
-        const bundle = buildContext({
-          snapshot: { sessionId: this.sessionId ?? 'unbound', revision: 0, messages: [] },
-          question,
-          settings: {
-            readContext: settings.readContext,
-            recentMessageLimit: settings.recentMessageLimit,
-            contextBudgetTokens: settings.contextBudgetTokens,
-            autoSummary: settings.autoSummary,
-            redactSensitive: settings.redactSensitive,
-          },
-          redactOptions: { customPatterns },
-          pins,
-        })
-        return { bundle, reason: 'no-session' }
-      }
       return { bundle: buildQuestionOnlyBundle(question, settings), reason: 'no-session' }
     }
     if (signal.aborted) return { bundle: null, reason: 'aborted' }
@@ -388,7 +305,6 @@ export class ContextSource {
           overflowSummary,
           redactOptions: { customPatterns },
           cache: this.projections,
-          pins,
         })
         if (settings.autoSummary && plan.ids.length > 0 && cachedSummary === null) {
           bundle.stats.degradations.push('summary-pending')

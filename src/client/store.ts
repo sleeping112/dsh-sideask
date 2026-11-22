@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Client-side orchestration store.
  *
  * One small observable object owns every piece of UI state (window, thread,
@@ -14,7 +14,6 @@
 import type {
   AskEvent,
   BootstrapResponse,
-  ChatMessage,
   ContextBundle,
   ContextItem,
   ProviderModels,
@@ -25,7 +24,6 @@ import type {
   ThreadListEntry,
   ThreadMessage,
 } from '../shared/contract.js'
-import type { PinnedInput } from '../shared/context.js'
 import { makeError } from '../shared/errors.js'
 import type { ContextSource, ExtractionResult, SelectionNote } from './context-source.js'
 import {
@@ -70,8 +68,6 @@ export interface UiState {
   threadBusy: boolean
   /** Per-thread composer drafts (UI only, never sent to the host until ask). */
   drafts: DraftMap
-  /** Explicitly pinned main-conversation messages (`#` references). */
-  pins: PinnedInput[]
   /** Context items the user unchecked for the next ask (by message id). */
   excludedMessageIds: string[]
   /** Model chosen in the window; null = follow the main conversation. */
@@ -123,7 +119,6 @@ function initialState(): UiState {
     lastQuestion: '',
     threadBusy: false,
     drafts: {},
-    pins: [],
     excludedMessageIds: [],
     modelOverride: null,
     modelCatalog: null,
@@ -291,39 +286,7 @@ export class SideAskStore {
     }
   }
 
-  // ------------------------------------------------- pins, exclusions, models
-
-  /** Newest main-conversation messages, for the `#` pin picker. */
-  mainMessages(limit = 20): ChatMessage[] {
-    return this.deps.contextSource.recentMessages(limit)
-  }
-
-  /** Other sessions available for read-only `#Past Chats` references. */
-  pastSessions(): Array<{ id: string; title: string }> {
-    return this.deps.contextSource.otherSessions()
-  }
-
-  /** Read one past session's visible messages (null when unavailable). */
-  async loadPastSession(sessionId: string): Promise<ChatMessage[] | null> {
-    return this.deps.contextSource.readSessionMessages(sessionId, 20)
-  }
-
-  isPinned(messageId: string): boolean {
-    return this.state.pins.some((pin) => pin.messageId === messageId)
-  }
-
-  /** Pin/unpin one main-conversation message (`#` reference). */
-  togglePin(message: Pick<ChatMessage, 'id' | 'role' | 'text'>): void {
-    const exists = this.state.pins.some((pin) => pin.messageId === message.id)
-    const pins = exists
-      ? this.state.pins.filter((pin) => pin.messageId !== message.id)
-      : [...this.state.pins, { messageId: message.id, role: message.role, text: message.text }]
-    this.set({ pins })
-  }
-
-  clearPins(): void {
-    this.set({ pins: [] })
-  }
+  // ------------------------------------------------------ exclusions, models
 
   /** Exclude/include one already-extracted context item on the next ask. */
   toggleExclusion(messageId: string): void {
@@ -353,7 +316,6 @@ export class SideAskStore {
         state.settings,
         controller.signal,
         state.customPatterns,
-        state.pins,
       )
       this.set({ extractionReason: result.reason, contextDetails: result.bundle })
     } finally {
@@ -518,7 +480,6 @@ export class SideAskStore {
         state.settings,
         controller.signal,
         state.customPatterns,
-        state.pins,
       )
       this.set({ extracting: false, extractionReason: result.reason, contextDetails: result.bundle })
       if (result.reason === 'aborted') {
@@ -608,8 +569,8 @@ export class SideAskStore {
       return
     }
     if (event.type === 'accepted') {
-      // The explicit pins/exclusions applied to this turn are consumed.
-      this.set({ pins: [], excludedMessageIds: [], answer: reduceAnswer(this.state.answer, event) })
+      // Explicit context exclusions applied to this turn are consumed.
+      this.set({ excludedMessageIds: [], answer: reduceAnswer(this.state.answer, event) })
       // Opportunistically compress messages that just fell out of the recent
       // window, so the NEXT question already has the summary.
       void this.deps.contextSource.refreshSummary()

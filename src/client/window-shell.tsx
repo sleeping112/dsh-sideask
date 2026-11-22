@@ -20,7 +20,6 @@ import type { ContextSource } from './context-source.js'
 import { ContextPanel } from './context-panel.js'
 import { ThreadMenu } from './thread-menu.js'
 import { SelectionAction } from './selection-action.js'
-import { PinsPanel } from './pins-panel.js'
 import { ModelPanel } from './model-panel.js'
 import { TemplatesPanel } from './templates-panel.js'
 import type { SideAskStore, UiState } from './store.js'
@@ -28,6 +27,7 @@ import { PANEL_CSS } from './styles.js'
 import { ThreadView } from './thread-view.js'
 import type { ConversationService } from './types.js'
 import {
+  PILL_FALLBACK_SIZE,
   WINDOW_STORAGE_KEY,
   applyDrag,
   applyResize,
@@ -36,12 +36,15 @@ import {
   defaultState,
   focusOnly,
   fromPosition,
-  pillStyle,
+  movePill,
+  pillPosition,
   release,
+  resetPill,
   restore,
   serialize,
   toggleCollapsed,
   toggleMinimized,
+  type PillSize,
   type Point,
   type WindowState,
   type Viewport,
@@ -82,11 +85,17 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   const [geometry, setGeometry] = useState<WindowState>(() => loadWindow(settings.defaultCorner))
   const [dragging, setDragging] = useState(false)
   // Only one popover may be open at a time: overlapping panels are confusing.
-  const [panel, setPanel] = useState<null | 'details' | 'threads' | 'pins' | 'models' | 'templates'>(null)
+  const [panel, setPanel] = useState<null | 'details' | 'threads' | 'models' | 'templates'>(null)
   const togglePanel = (name: NonNullable<typeof panel>): void =>
     setPanel((current) => (current === name ? null : name))
   const dragRef = useRef<{ start: Point; origin: WindowState } | null>(null)
   const resizeRef = useRef<{ start: Point; left: number; top: number } | null>(null)
+  // Entrance-pill dragging: click opens, drag moves, right-click re-docks.
+  const pillRef = useRef<HTMLButtonElement | null>(null)
+  const pillDragRef = useRef<{ start: Point; origin: Point; moved: boolean } | null>(null)
+  const skipPillClick = useRef(false)
+  const [pillSize, setPillSize] = useState<PillSize>(PILL_FALLBACK_SIZE)
+  const [pillDragging, setPillDragging] = useState(false)
   /**
    * Only remember geometry after the user actually moved/resized/collapsed the
    * window. Writing the initial default on mount would pin it forever and hide
@@ -221,8 +230,71 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
     }
   }, [])
 
+  // Measure the pill once rendered so free-position clamping uses its real size.
+  useLayoutEffect(() => {
+    const element = pillRef.current
+    if (element === null) return
+    const rect = element.getBoundingClientRect()
+    const width = Math.round(rect.width)
+    const height = Math.round(rect.height)
+    if (width > 0 && height > 0 && (width !== pillSize.width || height !== pillSize.height)) {
+      setPillSize({ width, height })
+    }
+  }, [state.open, geometry.minimized, state.threads.length, state.sessionId, pillSize.width, pillSize.height])
+
+  const onPillPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    pillDragRef.current = {
+      start: { x: event.clientX, y: event.clientY },
+      origin: { x: rect.left, y: rect.top },
+      moved: false,
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture is best-effort.
+    }
+  }, [])
+
+  const onPillPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = pillDragRef.current
+      if (drag === null) return
+      const delta = { x: event.clientX - drag.start.x, y: event.clientY - drag.start.y }
+      // A few pixels of jitter must not turn a click into a drag.
+      if (!drag.moved && Math.hypot(delta.x, delta.y) < 4) return
+      drag.moved = true
+      setPillDragging(true)
+      markTouched()
+      setGeometry((current) =>
+        movePill(current, drag.origin.x + delta.x, drag.origin.y + delta.y, viewportOf(), pillSize),
+      )
+    },
+    [markTouched, pillSize],
+  )
+
+  const onPillPointerUp = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = pillDragRef.current
+    pillDragRef.current = null
+    setPillDragging(false)
+    if (drag !== null && drag.moved) {
+      // Swallow the click that follows a drag so the window does not pop open.
+      skipPillClick.current = true
+      window.setTimeout(() => {
+        skipPillClick.current = false
+      }, 0)
+    }
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // Ignore.
+    }
+  }, [])
+
   const viewport = viewportOf()
   const position = computePosition(geometry, viewport)
+  const pillBox = pillPosition(geometry, viewport, pillSize, { top: settings.pillOffset })
   const streaming = state.answer.status === 'streaming'
   const sessionLabel =
     state.sessionId === null ? '未绑定对话' : state.sessionTitle ?? `对话 ${state.sessionId.slice(0, 8)}`
@@ -235,17 +307,29 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
       <>
         <div className="sa-root">
           <button
+            ref={pillRef}
             type="button"
             className="sa-pill"
-            style={pillStyle(geometry.corner, { top: settings.pillOffset })}
+            style={{ left: pillBox.left, top: pillBox.top }}
             data-testid="sideask-pill"
-            aria-label="打开旁问（悬浮轻对话）"
+            data-dragging={pillDragging}
+            aria-label="打开旁问（悬浮轻对话，可拖动）"
+            onPointerDown={onPillPointerDown}
+            onPointerMove={onPillPointerMove}
+            onPointerUp={onPillPointerUp}
+            onPointerCancel={onPillPointerUp}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              markTouched()
+              setGeometry((current) => resetPill(current))
+            }}
             onClick={() => {
+              if (skipPillClick.current) return
               store.setOpen(true)
               markTouched()
               setGeometry((current) => focusOnly(current))
             }}
-            title={`${sessionLabel} · 点击展开（${settings.hotkey}）`}
+            title={`${sessionLabel} · 点击展开（${settings.hotkey}）；拖动移动，右键复位`}
           >
             <span className="sa-dot" data-busy={streaming} />
             旁问
@@ -327,15 +411,12 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
             state={state}
             conversation={conversation}
             contextSource={contextSource}
-            onOpenPins={() => togglePanel('pins')}
             onOpenModels={() => togglePanel('models')}
             onOpenTemplates={() => togglePanel('templates')}
           />
         </div>
 
         {panel === 'templates' ? <TemplatesPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
-
-        {panel === 'pins' ? <PinsPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
 
         {panel === 'models' ? <ModelPanel store={store} state={state} onClose={() => setPanel(null)} /> : null}
 
