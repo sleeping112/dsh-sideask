@@ -18,6 +18,7 @@ import type {
   ContextBundle,
   ContextItem,
   Citation,
+  ModelsResponse,
   SideAskError,
   Thread,
   ThreadMessage,
@@ -33,6 +34,7 @@ import { readConfig, toSettings, type HostConfig } from './config.js'
 import {
   callModel,
   candidateRoutes,
+  describeModels,
   listProviderIds,
   type CallResult,
   type DefaultModelService,
@@ -228,6 +230,7 @@ export function sanitizeBundle(raw: unknown, config: HostConfig): ContextBundle 
       budgetTokens: budget,
       questionTokens: 0,
       selectionTokens: items.filter((item) => item.source === 'selection').reduce((sum, item) => sum + item.tokens, 0),
+      pinnedTokens: items.filter((item) => item.source === 'pinned').reduce((sum, item) => sum + item.tokens, 0),
       recentTokens: items.filter((item) => item.source === 'recent').reduce((sum, item) => sum + item.tokens, 0),
       summaryTokens: summary === null ? 0 : estimateTokens(summary),
       usedTokens: used,
@@ -374,6 +377,22 @@ export class SideAskRuntime {
 
   deleteThread(id: string): boolean {
     return this.store.remove(id)
+  }
+
+  /** Remove a message and every message after it ("regenerate"). Null ⇒ 404. */
+  truncateThread(threadId: string, fromMessageId: string): { removed: number } | null {
+    return this.store.truncate(threadId, fromMessageId)
+  }
+
+  /**
+   * Lazy model catalogue for the in-window picker.
+   *
+   * Kept out of {@link bootstrap} on purpose: the host catalogue is async and
+   * adapter-dependent, while bootstrap must answer synchronously so opening the
+   * window is instant. Always resolves (missing/broken services ⇒ empty list).
+   */
+  async listModels(): Promise<ModelsResponse> {
+    return { apiVersion: API_VERSION, providers: await describeModels(this.llm()) }
   }
 
   clearThreads(): number {

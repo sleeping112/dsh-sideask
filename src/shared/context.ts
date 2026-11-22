@@ -35,6 +35,8 @@ import { MESSAGE_OVERHEAD_TOKENS, estimateTokens, truncateToTokens } from './tok
 export const DEFAULT_SELECTION_RATIO = 0.4
 /** Default share of the budget the history summary may consume. */
 export const DEFAULT_SUMMARY_RATIO = 0.25
+/** Default share of the budget explicitly pinned (`#`) messages may consume. */
+export const DEFAULT_PINS_RATIO = 0.35
 /** A single message never takes more than this share of the budget. */
 const MAX_ITEM_RATIO = 0.35
 /** Below this many remaining tokens a truncated message is not worth adding. */
@@ -61,12 +63,26 @@ export interface ContextBuildInput {
   question: string
   selection?: ContextSelection | null
   settings: ContextBudgetSettings
+  /**
+   * Messages the user pinned explicitly (`#` references). They rank below a live
+   * selection but above the automatic recent window: pinning is an explicit
+   * "this matters" signal.
+   */
+  pins?: PinnedInput[] | null
   /** Summary of messages older than the recent window, when available. */
   overflowSummary?: OverflowSummary | null
   redactOptions?: RedactOptions
   cache?: ProjectionCache
   selectionRatio?: number
   summaryRatio?: number
+  pinsRatio?: number
+}
+
+/** One explicitly pinned main-conversation message. */
+export interface PinnedInput {
+  messageId: string
+  role: MessageRole
+  text: string
 }
 
 // ------------------------------------------------------------ projection cache
@@ -224,6 +240,7 @@ function emptyStats(budgetTokens: number, questionTokens: number): ContextStats 
     budgetTokens,
     questionTokens,
     selectionTokens: 0,
+    pinnedTokens: 0,
     recentTokens: 0,
     summaryTokens: 0,
     usedTokens: 0,
@@ -260,6 +277,7 @@ export function buildContext(input: ContextBuildInput): ContextBundle {
   const redactionOn = input.settings.redactSensitive
   const selectionRatio = input.selectionRatio ?? DEFAULT_SELECTION_RATIO
   const summaryRatio = input.summaryRatio ?? DEFAULT_SUMMARY_RATIO
+  const pinsRatio = input.pinsRatio ?? DEFAULT_PINS_RATIO
 
   // ---- 1. dedupe then window -------------------------------------------
   const deduped = dedupeMessages(input.snapshot.messages)
@@ -282,6 +300,46 @@ export function buildContext(input: ContextBuildInput): ContextBundle {
     selection = { text: fitted.text, ...(input.selection.messageId !== undefined ? { messageId: input.selection.messageId } : {}) }
     selectionTokens = estimateTokens(fitted.text)
     stats.selectionTokens = selectionTokens
+  }
+
+  // ---- 2b. explicitly pinned messages (`#` references) -----------------
+  // Explicit user intent ranks below a live selection but above the automatic
+  // window. Each pin is redacted, capped by the remaining pin budget, and the
+  // pin budget itself is capped at a share of the total.
+  const pinnedItems: ContextItem[] = []
+  let pinnedTokens = 0
+  if (Array.isArray(input.pins) && input.pins.length > 0) {
+    const cap = Math.max(MIN_USEFUL_TOKENS, Math.floor(budgetTokens * pinsRatio))
+    const maxItemTokens = Math.max(MIN_USEFUL_TOKENS, Math.floor(budgetTokens * MAX_ITEM_RATIO))
+    const seen = new Set<string>()
+    for (const pin of input.pins) {
+      if (pin.messageId.length === 0 || seen.has(pin.messageId)) continue
+      seen.add(pin.messageId)
+      const remaining = cap - pinnedTokens
+      if (remaining < MIN_USEFUL_TOKENS) {
+        stats.degradations.push('pins-trimmed')
+        break
+      }
+      const masked = redactionOn ? redact(pin.text, redactOptions) : { text: pin.text, total: 0 }
+      stats.redactedCount += masked.total
+      const fitted = truncateToTokens(masked.text, Math.min(remaining, maxItemTokens))
+      const tokens = estimateTokens(fitted.text) + MESSAGE_OVERHEAD_TOKENS
+      if (tokens > remaining) {
+        stats.degradations.push('pins-trimmed')
+        break
+      }
+      pinnedItems.push({
+        ref: '',
+        messageId: pin.messageId,
+        role: pin.role,
+        text: fitted.text,
+        tokens,
+        truncated: fitted.truncated,
+        source: 'pinned',
+      })
+      pinnedTokens += tokens
+    }
+    stats.pinnedTokens = pinnedTokens
   }
 
   // ---- 3. summary (represents history older than the window) ------------
@@ -310,7 +368,7 @@ export function buildContext(input: ContextBuildInput): ContextBundle {
   const project = (message: ChatMessage): ProjectedMessage => cache.project(message, redactOptions, redactionOn)
 
   const fillRecent = (): { items: ContextItem[]; tokens: number; trimmed: boolean } => {
-    const available = budgetTokens - selectionTokens - summaryTokens
+    const available = budgetTokens - selectionTokens - pinnedTokens - summaryTokens
     const maxItemTokens = Math.max(MIN_USEFUL_TOKENS, Math.floor(budgetTokens * MAX_ITEM_RATIO))
     const chosen: ContextItem[] = []
     let used = 0
@@ -390,13 +448,17 @@ export function buildContext(input: ContextBuildInput): ContextBundle {
     })
     nextRef += 1
   }
+  for (const pin of pinnedItems) {
+    items.push({ ...pin, ref: refFor(nextRef) })
+    nextRef += 1
+  }
   for (const item of recent.items) {
     items.push({ ...item, ref: refFor(nextRef) })
     nextRef += 1
   }
 
   stats.recentTokens = recent.tokens
-  stats.usedTokens = selectionTokens + summaryTokens + recent.tokens
+  stats.usedTokens = selectionTokens + pinnedTokens + summaryTokens + recent.tokens
   if (items.length === 0 && summaryText === null) {
     stats.degradations.push('question-only')
   } else if (recent.trimmed) {

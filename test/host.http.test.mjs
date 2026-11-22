@@ -602,6 +602,8 @@ describe('route registration', () => {
     const paths = host.webServer.routePaths()
     for (const expected of [
       `exact:${ROUTE.bootstrap}`,
+      // Lazy model catalogue for the in-window picker (see host.truncate.test).
+      `exact:${ROUTE.models}`,
       `exact:${ROUTE.ask}`,
       `exact:${ROUTE.cancel}`,
       `exact:${ROUTE.threads}`,

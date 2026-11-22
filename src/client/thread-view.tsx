@@ -24,6 +24,10 @@ export interface ThreadViewProps {
   state: UiState
   conversation: ConversationService | undefined
   contextSource: ContextSource
+  /** Open the `#` pin picker (owned by the window shell). */
+  onOpenPins: () => void
+  /** Open the model picker (owned by the window shell). */
+  onOpenModels: () => void
 }
 
 // ------------------------------------------------------------------ markdown
@@ -154,11 +158,15 @@ function MessageActions({
   text,
   conversation,
   contextSource,
+  canRegenerate,
+  onRegenerate,
 }: {
   store: SideAskStore
   text: string
   conversation: ConversationService | undefined
   contextSource: ContextSource
+  canRegenerate: boolean
+  onRegenerate: () => void
 }): React.ReactElement {
   const [busy, setBusy] = useState<WritebackKind | null>(null)
   const run = useCallback(
@@ -180,18 +188,31 @@ function MessageActions({
 
   return (
     <div className="sa-actions">
-      {ACTION_LABELS.map((action) => (
+      {canRegenerate ? (
         <button
-          key={action.kind}
           type="button"
           className="sa-chip"
-          title={action.title}
+          title="删掉这条回答并重新提问（只影响本侧线程）"
           disabled={busy !== null}
-          onClick={() => void run(action.kind)}
+          onClick={onRegenerate}
         >
-          {busy === action.kind ? '…' : action.label}
+          重新生成
         </button>
-      ))}
+      ) : null}
+      {text.length > 0
+        ? ACTION_LABELS.map((action) => (
+            <button
+              key={action.kind}
+              type="button"
+              className="sa-chip"
+              title={action.title}
+              disabled={busy !== null}
+              onClick={() => void run(action.kind)}
+            >
+              {busy === action.kind ? '…' : action.label}
+            </button>
+          ))
+        : null}
     </div>
   )
 }
@@ -207,6 +228,8 @@ function MessageRow({
   streaming,
   suppressError,
   onCite,
+  canRegenerate,
+  onRegenerate,
 }: {
   message: ThreadMessage
   store: SideAskStore
@@ -217,6 +240,8 @@ function MessageRow({
   /** The live ErrorState card already explains this failure. */
   suppressError: boolean
   onCite: (citation: Citation) => void
+  canRegenerate: boolean
+  onRegenerate: () => void
 }): React.ReactElement {
   const isUser = message.role === 'user'
   return (
@@ -229,8 +254,15 @@ function MessageRow({
           </div>
         ) : null}
       </div>
-      {!isUser && !streaming && message.text.length > 0 ? (
-        <MessageActions store={store} text={message.text} conversation={conversation} contextSource={contextSource} />
+      {!isUser && !streaming && (message.text.length > 0 || canRegenerate) ? (
+        <MessageActions
+          store={store}
+          text={message.text}
+          conversation={conversation}
+          contextSource={contextSource}
+          canRegenerate={canRegenerate}
+          onRegenerate={onRegenerate}
+        />
       ) : null}
       {!isUser && (message.citations ?? []).length > 0 ? (
         <div className="sa-actions">
@@ -300,7 +332,17 @@ function ErrorState({ store, state }: { store: SideAskStore; state: UiState }): 
   )
 }
 
-function Composer({ store, state }: { store: SideAskStore; state: UiState }): React.ReactElement {
+function Composer({
+  store,
+  state,
+  onOpenPins,
+  onOpenModels,
+}: {
+  store: SideAskStore
+  state: UiState
+  onOpenPins: () => void
+  onOpenModels: () => void
+}): React.ReactElement {
   // The draft lives in the store, keyed by thread id, so switching threads keeps
   // each thread's own draft (and it survives a page reload via localStorage).
   const draft = getDraft(state.drafts, state.thread?.id ?? null)
@@ -344,6 +386,45 @@ function Composer({ store, state }: { store: SideAskStore; state: UiState }): Re
           {state.extracting ? '整理上下文…' : `${tokens}/${budget} token`}
         </span>
       </div>
+      {state.pins.length > 0 ? (
+        <div className="sa-pins" data-testid="sideask-pins">
+          {state.pins.map((pin) => (
+            <button
+              key={pin.messageId}
+              type="button"
+              className="sa-chip"
+              data-kind="pin"
+              title={`${pin.messageId}｜${pin.text.slice(0, 80)}（点击取消钉住）`}
+              onClick={() => store.togglePin({ id: pin.messageId, role: pin.role, text: pin.text })}
+            >
+              # {pin.role === 'assistant' ? 'AI' : '我'} · {pin.text.replace(/\s+/g, ' ').trim().slice(0, 18)}
+            </button>
+          ))}
+          <button type="button" className="sa-chip" onClick={() => store.clearPins()}>
+            清空
+          </button>
+        </div>
+      ) : null}
+      <div className="sa-ctxline">
+        <button
+          type="button"
+          className="sa-chip"
+          data-testid="sideask-pin-button"
+          onClick={onOpenPins}
+          title="钉住主对话中的消息，作为本次提问的高优先级上下文"
+        >
+          ＃ 钉住
+        </button>
+        <button
+          type="button"
+          className="sa-chip"
+          data-testid="sideask-model-button"
+          onClick={onOpenModels}
+          title="选择旁问使用的模型（只影响旁问）"
+        >
+          模型：{state.modelOverride === null ? '跟随主对话' : state.modelOverride.model}
+        </button>
+      </div>
       <div className="sa-inputrow">
         <textarea
           ref={textarea}
@@ -373,7 +454,7 @@ function Composer({ store, state }: { store: SideAskStore; state: UiState }): Re
   )
 }
 
-export function ThreadView({ store, state, conversation, contextSource }: ThreadViewProps): React.ReactElement {
+export function ThreadView({ store, state, conversation, contextSource, onOpenPins, onOpenModels }: ThreadViewProps): React.ReactElement {
   const messages = visibleMessages(state)
   const scroller = useRef<HTMLDivElement | null>(null)
   const streaming = state.answer.status === 'streaming'
@@ -435,11 +516,13 @@ export function ThreadView({ store, state, conversation, contextSource }: Thread
             streaming={streaming && message.id.startsWith('stream-')}
             suppressError={errorCardVisible && message.id === lastAssistantId}
             onCite={onCite}
+            canRegenerate={message.id === lastAssistantId && !streaming && state.answer.status !== 'streaming'}
+            onRegenerate={() => void store.regenerate(message)}
           />
         ))}
         <ErrorState store={store} state={state} />
       </div>
-      <Composer store={store} state={state} />
+      <Composer store={store} state={state} onOpenPins={onOpenPins} onOpenModels={onOpenModels} />
     </>
   )
 }

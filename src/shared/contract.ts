@@ -51,7 +51,7 @@ export interface TranscriptSnapshot {
 
 // ------------------------------------------------------------------- context
 
-export type ContextSource = 'selection' | 'recent' | 'summary'
+export type ContextSource = 'selection' | 'pinned' | 'recent' | 'summary'
 
 /** One budgeted unit handed to the model under a stable short reference. */
 export interface ContextItem {
@@ -70,6 +70,8 @@ export interface ContextStats {
   budgetTokens: number
   questionTokens: number
   selectionTokens: number
+  /** Tokens used by messages the user pinned explicitly (`#` references). */
+  pinnedTokens: number
   recentTokens: number
   summaryTokens: number
   usedTokens: number
@@ -247,4 +249,25 @@ export interface BootstrapResponse {
   providers: string[]
   /** Present when the host cannot call a model at all. */
   unavailable: SideAskError | null
+}
+
+// -------------------------------------------------------------------- models
+
+/**
+ * One provider's selectable models for the in-window picker.
+ *
+ * This lives on its own lazy route (`GET /api/models`) instead of in
+ * `BootstrapResponse` because the host's `ctx.llm.listModels(provider)` is
+ * asynchronous and can be slow or unavailable; bootstrap must stay synchronous
+ * and cheap so opening the window never waits on provider catalogues.
+ */
+export interface ProviderModels {
+  provider: string
+  /** Model ids the picker may offer, in adapter-preferred order. */
+  models: Array<{ id: string; name: string }>
+}
+
+export interface ModelsResponse {
+  apiVersion: number
+  providers: ProviderModels[]
 }

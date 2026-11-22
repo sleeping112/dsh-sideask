@@ -194,6 +194,28 @@ export const PANEL_CSS = `
 .sa-menu-meta { font-size: 10.5px; color: var(--sa-fg-weak); }
 .sa-menu-actions { display: flex; gap: 5px; margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--sa-border); }
 .sa-menu-actions .sa-chip:disabled { opacity: .45; cursor: default; }
+
+/* Pins + model rows under the composer toolbar. */
+.sa-pins { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px 0; }
+.sa-pins .sa-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-pins .sa-chip[data-kind="pin"] { border-color: var(--sa-accent); }
+.sa-ctxline { display: flex; gap: 4px; padding: 4px 8px 0; }
+.sa-ctxline .sa-chip { font-size: 10.5px; }
+
+/* Context items with exclusion checkboxes. */
+.sa-detail-sub { margin-top: 6px; color: var(--sa-fg-weak); }
+.sa-ctx-items { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.sa-ctx-item {
+  display: flex; align-items: flex-start; gap: 5px; padding: 3px 4px;
+  border-radius: 6px; border: 1px solid transparent; cursor: pointer;
+}
+.sa-ctx-item:hover { background: rgba(127,127,127,.12); }
+.sa-ctx-item[data-excluded="true"] { opacity: .5; text-decoration: line-through; }
+.sa-ctx-item input { margin-top: 2px; }
+.sa-ctx-ref { color: var(--sa-accent); font-variant-numeric: tabular-nums; }
+.sa-ctx-src { color: var(--sa-fg-weak); flex: 0 0 auto; }
+.sa-ctx-text { color: var(--sa-fg); word-break: break-all; }
+.sa-ctx-items .sa-chip { align-self: flex-start; margin-top: 2px; }
 .sa-kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; color: var(--sa-fg-weak); }
 .sa-kv b { color: var(--sa-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sa-degr { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }

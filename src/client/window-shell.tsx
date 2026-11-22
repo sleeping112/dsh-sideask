@@ -20,6 +20,8 @@ import type { ContextSource } from './context-source.js'
 import { ContextPanel } from './context-panel.js'
 import { ThreadMenu } from './thread-menu.js'
 import { SelectionAction } from './selection-action.js'
+import { PinsPanel } from './pins-panel.js'
+import { ModelPanel } from './model-panel.js'
 import type { SideAskStore, UiState } from './store.js'
 import { PANEL_CSS } from './styles.js'
 import { ThreadView } from './thread-view.js'
@@ -80,6 +82,8 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   const [dragging, setDragging] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [threadMenuOpen, setThreadMenuOpen] = useState(false)
+  const [pinsOpen, setPinsOpen] = useState(false)
+  const [modelsOpen, setModelsOpen] = useState(false)
   const dragRef = useRef<{ start: Point; origin: WindowState } | null>(null)
   const resizeRef = useRef<{ start: Point; left: number; top: number } | null>(null)
   /**
@@ -317,8 +321,19 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
         </div>
 
         <div className="sa-body">
-          <ThreadView store={store} state={state} conversation={conversation} contextSource={contextSource} />
+          <ThreadView
+            store={store}
+            state={state}
+            conversation={conversation}
+            contextSource={contextSource}
+            onOpenPins={() => setPinsOpen((open) => !open)}
+            onOpenModels={() => setModelsOpen((open) => !open)}
+          />
         </div>
+
+        {pinsOpen ? <PinsPanel store={store} state={state} onClose={() => setPinsOpen(false)} /> : null}
+
+        {modelsOpen ? <ModelPanel store={store} state={state} onClose={() => setModelsOpen(false)} /> : null}
 
         {threadMenuOpen ? (
           <ThreadMenu store={store} state={state} onClose={() => setThreadMenuOpen(false)} />

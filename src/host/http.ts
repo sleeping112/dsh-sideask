@@ -15,7 +15,7 @@
  */
 
 import type { AskEvent, BootstrapResponse, SideAskError, Thread, ThreadListEntry } from '../shared/contract.js'
-import { ROUTE_PREFIX } from '../shared/contract.js'
+import { API_VERSION, ROUTE_PREFIX } from '../shared/contract.js'
 import { makeError } from '../shared/errors.js'
 import type { HostContext, SideAskRuntime } from './runtime.js'
 
@@ -201,24 +201,80 @@ async function handleAsk(runtime: SideAskRuntime, request: NodeRequest, res: Nod
 }
 
 /**
- * Extract a thread id from `/plugins/dsh-sideask/api/threads/<id>`.
+ * Parse `/plugins/dsh-sideask/api/threads/<id>[/truncate]`.
  *
  * The id-scoped routes are registered under a SLASH-LESS prefix because the
  * host web server matches a prefix route as
  * `pathname === prefix || pathname.startsWith(prefix + '/')`; a prefix that
  * already ends in `/` could never match `.../threads/<id>` (it would require a
  * double slash). Shipped host prefixes are slash-less for exactly this reason.
+ *
+ * The optional trailing segment is a sub-resource action. An unknown action
+ * (or an empty id, or an undecodable id) is rejected as "not a thread path" so
+ * the caller answers 404 instead of silently operating on the collection.
  */
-function threadIdFromPath(pathname: string): string | null {
+interface ThreadPath {
+  id: string
+  /** `null` for the item itself; `'truncate'` for its only sub-resource. */
+  action: 'truncate' | null
+}
+
+function threadIdFromPath(pathname: string): ThreadPath | null {
   const prefix = `${ROUTE_PREFIX}/threads/`
   if (!pathname.startsWith(prefix)) return null
   const rest = pathname.slice(prefix.length)
-  if (rest.length === 0 || rest.includes('/')) return null
+  if (rest.length === 0) return null
+  const slash = rest.indexOf('/')
+  const rawId = slash === -1 ? rest : rest.slice(0, slash)
+  const rawAction = slash === -1 ? null : rest.slice(slash + 1)
+  if (rawId.length === 0) return null
+  if (rawAction !== null && rawAction !== 'truncate') return null
   try {
-    return decodeURIComponent(rest)
+    return { id: decodeURIComponent(rawId), action: rawAction }
   } catch {
     return null
   }
+}
+
+/**
+ * POST `/threads/<id>/truncate` with `{ fromMessageId }`.
+ *
+ * Answers 404 for an unknown thread, 400 for a malformed body, and
+ * `{ removed }` otherwise. `removed` may be 0 when the message id is already
+ * gone (another tab truncated first), which is not an error.
+ */
+async function handleTruncate(
+  runtime: SideAskRuntime,
+  threadId: string,
+  request: NodeRequest,
+  res: NodeResponse,
+): Promise<void> {
+  if (methodOf(request) !== 'POST') {
+    res.writeHead(405, { allow: 'POST' })
+    res.end()
+    return
+  }
+  let body: unknown
+  try {
+    body = await readJson(request)
+  } catch (error) {
+    sendError(res, 400, makeError('BAD_REQUEST', error instanceof Error ? error.message : '无法解析请求体'))
+    return
+  }
+  const fromMessageId =
+    body !== null && typeof body === 'object' && typeof (body as Record<string, unknown>)['fromMessageId'] === 'string'
+      ? ((body as Record<string, unknown>)['fromMessageId'] as string)
+      : ''
+  if (fromMessageId.length === 0) {
+    sendError(res, 400, makeError('BAD_REQUEST', '缺少 fromMessageId'))
+    return
+  }
+  const result = runtime.truncateThread(threadId, fromMessageId)
+  if (result === null) {
+    sendError(res, 404, makeError('BAD_REQUEST', '会话不存在'))
+    return
+  }
+  sendJson(res, 200, { removed: result.removed })
 }
 
 function createThreadsHandler(runtime: SideAskRuntime) {
@@ -231,9 +287,9 @@ function createThreadsHandler(runtime: SideAskRuntime) {
       return
     }
     const method = methodOf(request)
-    const id = threadIdFromPath(pathname)
+    const parsed = threadIdFromPath(pathname)
 
-    if (id === null) {
+    if (parsed === null) {
       if (pathname !== `${ROUTE_PREFIX}/threads`) {
         sendError(res, 404, makeError('BAD_REQUEST', '未知路径'))
         return
@@ -264,6 +320,12 @@ function createThreadsHandler(runtime: SideAskRuntime) {
       return
     }
 
+    if (parsed.action === 'truncate') {
+      await handleTruncate(runtime, parsed.id, request, res)
+      return
+    }
+
+    const id = parsed.id
     if (method === 'GET') {
       const thread = runtime.getThread(id)
       if (thread === null) sendError(res, 404, makeError('BAD_REQUEST', '会话不存在'))
@@ -315,6 +377,27 @@ export function registerRoutes(ctx: HostContext, runtime: SideAskRuntime): () =>
         }
         const payload: BootstrapResponse = runtime.bootstrap()
         sendJson(res, 200, payload)
+      }),
+    }),
+  )
+
+  disposers.push(
+    server.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/models`,
+      handler: guard((req, res) => {
+        const method = methodOf(req)
+        if (method !== 'GET' && method !== 'HEAD') {
+          res.writeHead(405, { allow: 'GET, HEAD' })
+          res.end()
+          return
+        }
+        // The catalogue is async and adapter-dependent: a slow or broken
+        // provider must degrade to "no model list", never to an error page.
+        void runtime
+          .listModels()
+          .then((payload) => sendJson(res, 200, payload))
+          .catch(() => sendJson(res, 200, { apiVersion: API_VERSION, providers: [] }))
       }),
     }),
   )

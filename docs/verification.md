@@ -648,5 +648,36 @@ errors: 0 | exceptions: 0
 划词时官方引用菜单与我们的浮钮可能同时出现（我们无法进入它的 keyed 插槽）。
 若后续宿主提供"多 opener"或可组合的划词插槽，可合二为一。
 
+---
+
+## 16. 迭代 2（2026-11-22）：重新生成、# 钉住、上下文编辑、模型选择
+
+### 16.1 真机验证（隔离实例 + headless Edge + CDP）
+
+```
+1 after send            {"status":"error","messages":2,"error":"MISSING_CREDENTIAL"}
+2 regenerate button     {"hasRegenerate":true,"chips":["重新生成","＃ 钉住","模型：跟随主对话"]}
+before regenerate       {"ids":["m_mwrusaw3…","m_mwrusaw7…"]}
+2b after regenerate     {"status":"error","messages":2,"ids":["m_mwrusfy9…","m_mwrusfyc…"],"threadBusy":false}
+context items           {"rows":["c1钉住钉住的主对话消息：这次发布需要注意兼容性"],"checkboxes":1,"checked":true}
+after exclude           {"excluded":["main-pin-2"],"checked":false,"restoreBtn":true}
+after restore           {"excluded":[]}
+models route            {"status":200,"providers":[{"provider":"deepseek-official","models":[]},{"provider":"deepseek-account","models":[]}]}
+model panel             {"items":["跟随主对话（默认）…"],"empty":"宿主的模型适配器没有公开模型清单（可继续跟随主对话）"}
+default route           error mentions "deepseek-official"
+override route          error mentions "deepseek-account"（证明 routeHint 生效）
+exceptions: 0
+```
+
+### 16.2 修复的边界
+
+- 未绑定会话时钉住上下文会被 `build()` 早退吞掉 → 现在无会话也会带上钉住项（reason `no-session`）；
+- 失败回答文本为空时动作区不渲染 → 现在只要可重新生成就渲染动作区，写回按钮仍对空文本隐藏。
+
+### 16.3 仍未做（迭代 3 候选）
+
+Fork 会话副本、历史摘要层落地、一键"交给主对话执行"、跨会话 `#Past Chats`、
+模板/快捷指令、导出 Markdown、token/费用面板、图片与语音输入。
+
 
 

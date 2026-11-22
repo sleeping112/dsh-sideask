@@ -75,7 +75,12 @@ export function buildSystemPrompt(requireCitations: boolean): string {
 function renderItems(bundle: ContextBundle): string {
   const lines: string[] = []
   for (const item of bundle.items) {
-    const origin = item.source === 'selection' ? '用户选中' : ROLE_LABEL[item.role] ?? item.role
+    const origin =
+      item.source === 'selection'
+        ? '用户选中'
+        : item.source === 'pinned'
+          ? '用户钉住'
+          : ROLE_LABEL[item.role] ?? item.role
     const truncated = item.truncated ? '｜已截断' : ''
     const messageRef = item.messageId.startsWith('selection:') ? '' : `｜msg:${item.messageId}`
     lines.push(`[${item.ref}｜${origin}${messageRef}${truncated}]`)

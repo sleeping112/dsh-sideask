@@ -193,6 +193,26 @@ export class ThreadStore {
     return structuredClone(thread)
   }
 
+  /**
+   * Remove `fromMessageId` and every message after it.
+   *
+   * This is the "regenerate answer" primitive: the browser truncates back to the
+   * question it wants re-asked and then posts a new /ask. Returns `null` for an
+   * unknown thread so the HTTP layer can answer 404; an unknown *message* id is
+   * not an error (`{removed: 0}`) because the client may race another tab.
+   */
+  truncate(threadId: string, fromMessageId: string): { removed: number } | null {
+    const thread = this.threads.get(threadId)
+    if (thread === undefined) return null
+    const index = thread.messages.findIndex((message) => message.id === fromMessageId)
+    if (index === -1) return { removed: 0 }
+    const removed = thread.messages.length - index
+    thread.messages.splice(index)
+    thread.updatedAt = Date.now()
+    this.scheduleFlush()
+    return { removed }
+  }
+
   remove(threadId: string): boolean {
     const removed = this.threads.delete(threadId)
     if (removed) this.scheduleFlush()

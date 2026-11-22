@@ -30,11 +30,17 @@ const REASON_TEXT: Record<string, string> = {
 const DEGRADATION_TEXT: Record<string, string> = {
   'summary-dropped-for-recent': '丢弃了历史摘要，优先保留最近的对话',
   'recent-trimmed': '最近消息被预算截断',
+  'pins-trimmed': '钉住的消息超出预算，部分被丢弃',
   'question-only': '没有可用上下文，仅基于问题回答',
   'context-disabled': '上下文读取被关闭',
   'extraction-failed': '上下文提取失败',
   'over-budget-trimmed': '为防止超预算做了额外裁剪',
   'preamble-dropped': '为节省预算省略了部分说明',
+}
+
+function excerpt(text: string, limit: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`
 }
 
 export function ContextPanel({ store, state, contextSource, onClose }: ContextPanelProps): React.ReactElement {
@@ -92,8 +98,50 @@ export function ContextPanel({ store, state, contextSource, onClose }: ContextPa
               {stats.truncations.selection} / {stats.truncations.recent} / {stats.truncations.summary}
             </b>
           </div>
+          <div className="sa-kv">
+            <span>钉住 / 选中</span>
+            <b>
+              {stats.pinnedTokens} / {stats.selectionTokens} token
+            </b>
+          </div>
         </>
       )}
+
+      {details !== null && details.items.length > 0 ? (
+        <div className="sa-ctx-items">
+          <div className="sa-detail-sub">将发送的上下文（取消勾选即排除）</div>
+          {details.items.map((item) => {
+            const excluded = state.excludedMessageIds.includes(item.messageId)
+            return (
+              <label key={item.ref} className="sa-ctx-item" data-excluded={excluded}>
+                <input
+                  type="checkbox"
+                  checked={!excluded}
+                  onChange={() => store.toggleExclusion(item.messageId)}
+                />
+                <span className="sa-ctx-ref">{item.ref}</span>
+                <span className="sa-ctx-src">
+                  {item.source === 'selection' ? '选中' : item.source === 'pinned' ? '钉住' : item.role === 'assistant' ? 'AI' : '我'}
+                </span>
+                <span className="sa-ctx-text">{excerpt(item.text, 90)}</span>
+              </label>
+            )
+          })}
+          {state.excludedMessageIds.length > 0 ? (
+            <button type="button" className="sa-chip" onClick={() => store.clearExclusions()}>
+              恢复全部（{state.excludedMessageIds.length} 条已排除）
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {details === null ? (
+        <div className="sa-actions" style={{ marginTop: 8 }}>
+          <button type="button" className="sa-chip" onClick={() => void store.previewContext()} disabled={state.extracting}>
+            {state.extracting ? '读取中…' : '读取当前上下文'}
+          </button>
+        </div>
+      ) : null}
       <div className="sa-kv">
         <span>投影缓存命中 / 未命中</span>
         <b>

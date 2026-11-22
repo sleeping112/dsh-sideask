@@ -14,7 +14,10 @@
 import type {
   AskEvent,
   BootstrapResponse,
+  ChatMessage,
   ContextBundle,
+  ContextItem,
+  ProviderModels,
   SideAskConfig,
   SideAskError,
   SideAskSettings,
@@ -22,6 +25,7 @@ import type {
   ThreadListEntry,
   ThreadMessage,
 } from '../shared/contract.js'
+import type { PinnedInput } from '../shared/context.js'
 import { makeError } from '../shared/errors.js'
 import type { ContextSource, ExtractionResult, SelectionNote } from './context-source.js'
 import {
@@ -65,6 +69,15 @@ export interface UiState {
   threadBusy: boolean
   /** Per-thread composer drafts (UI only, never sent to the host until ask). */
   drafts: DraftMap
+  /** Explicitly pinned main-conversation messages (`#` references). */
+  pins: PinnedInput[]
+  /** Context items the user unchecked for the next ask (by message id). */
+  excludedMessageIds: string[]
+  /** Model chosen in the window; null = follow the main conversation. */
+  modelOverride: { provider: string; model: string } | null
+  /** Lazily loaded provider/model catalog for the picker. */
+  modelCatalog: ProviderModels[] | null
+  modelCatalogError: string | null
   toast: Toast | null
 }
 
@@ -109,9 +122,17 @@ function initialState(): UiState {
     lastQuestion: '',
     threadBusy: false,
     drafts: {},
+    pins: [],
+    excludedMessageIds: [],
+    modelOverride: null,
+    modelCatalog: null,
+    modelCatalogError: null,
     toast: null,
   }
 }
+
+/** Persisted model override (UI preference; never written to the host config). */
+const MODEL_STORAGE_KEY = 'dsh-sideask.model.v1'
 
 export class SideAskStore {
   private state: UiState = initialState()
@@ -127,6 +148,17 @@ export class SideAskStore {
       this.state = { ...this.state, drafts: loadDrafts(window.localStorage.getItem(DRAFT_STORAGE_KEY)) }
     } catch {
       // Private mode / storage disabled: drafts stay in memory for this session.
+    }
+    try {
+      const raw = window.localStorage.getItem(MODEL_STORAGE_KEY)
+      if (raw !== null && raw.length > 0) {
+        const parsed = JSON.parse(raw) as { provider?: unknown; model?: unknown }
+        if (typeof parsed.provider === 'string' && typeof parsed.model === 'string' && parsed.provider.length > 0 && parsed.model.length > 0) {
+          this.state = { ...this.state, modelOverride: { provider: parsed.provider, model: parsed.model } }
+        }
+      }
+    } catch {
+      // Corrupt or unavailable storage: follow the main conversation model.
     }
   }
 
@@ -258,6 +290,148 @@ export class SideAskStore {
     }
   }
 
+  // ------------------------------------------------- pins, exclusions, models
+
+  /** Newest main-conversation messages, for the `#` pin picker. */
+  mainMessages(limit = 20): ChatMessage[] {
+    return this.deps.contextSource.recentMessages(limit)
+  }
+
+  isPinned(messageId: string): boolean {
+    return this.state.pins.some((pin) => pin.messageId === messageId)
+  }
+
+  /** Pin/unpin one main-conversation message (`#` reference). */
+  togglePin(message: Pick<ChatMessage, 'id' | 'role' | 'text'>): void {
+    const exists = this.state.pins.some((pin) => pin.messageId === message.id)
+    const pins = exists
+      ? this.state.pins.filter((pin) => pin.messageId !== message.id)
+      : [...this.state.pins, { messageId: message.id, role: message.role, text: message.text }]
+    this.set({ pins })
+  }
+
+  clearPins(): void {
+    this.set({ pins: [] })
+  }
+
+  /** Exclude/include one already-extracted context item on the next ask. */
+  toggleExclusion(messageId: string): void {
+    const excluded = this.state.excludedMessageIds.includes(messageId)
+      ? this.state.excludedMessageIds.filter((id) => id !== messageId)
+      : [...this.state.excludedMessageIds, messageId]
+    this.set({ excludedMessageIds: excluded })
+  }
+
+  clearExclusions(): void {
+    this.set({ excludedMessageIds: [] })
+  }
+
+  /**
+   * Extract context on demand (before sending) so the user can inspect and
+   * remove items in the details panel.
+   */
+  async previewContext(): Promise<void> {
+    if (this.state.extracting) return
+    const state = this.state
+    const question = this.draftForCurrentThread() || '（上下文预览）'
+    const controller = new AbortController()
+    this.set({ extracting: true })
+    try {
+      const result = await this.deps.contextSource.build(
+        question,
+        state.settings,
+        controller.signal,
+        state.customPatterns,
+        state.pins,
+      )
+      this.set({ extractionReason: result.reason, contextDetails: result.bundle })
+    } finally {
+      this.set({ extracting: false })
+    }
+  }
+
+  /** Lazily load the provider/model catalog for the model picker. */
+  async loadModels(): Promise<void> {
+    if (this.state.modelCatalog !== null) return
+    try {
+      const providers = await this.deps.api.listModels()
+      this.set({ modelCatalog: providers, modelCatalogError: null })
+    } catch (error) {
+      this.set({
+        modelCatalog: [],
+        modelCatalogError: error instanceof Error ? error.message : '模型列表读取失败',
+      })
+    }
+  }
+
+  /** null = follow the main conversation's model (the default). */
+  setModelOverride(provider: string | null, model?: string): void {
+    if (provider === null || model === undefined || provider.length === 0 || model.length === 0) {
+      this.set({ modelOverride: null })
+      try {
+        window.localStorage.removeItem(MODEL_STORAGE_KEY)
+      } catch {
+        // Ignore.
+      }
+      return
+    }
+    const modelOverride = { provider, model }
+    this.set({ modelOverride })
+    try {
+      window.localStorage.setItem(MODEL_STORAGE_KEY, JSON.stringify(modelOverride))
+    } catch {
+      // Ignore.
+    }
+  }
+
+  /**
+   * Regenerate an answer: truncate it (and anything after it) on the host, then
+   * ask the same question again. Only the last answer can be regenerated —
+   * removing later turns without asking would be surprising.
+   */
+  async regenerate(message: ThreadMessage): Promise<void> {
+    const state = this.state
+    const thread = state.thread
+    if (thread === null) return
+    if (state.answer.status === 'streaming' || state.threadBusy) return
+    const messages = thread.messages
+    let lastAssistant: ThreadMessage | null = null
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'assistant') {
+        lastAssistant = messages[index] ?? null
+        break
+      }
+    }
+    if (lastAssistant === null || lastAssistant.id !== message.id) {
+      this.toast('info', '只能重新生成最后一条回答（删除中间轮次会丢失后续对话）')
+      return
+    }
+    const replyTo = message.replyTo
+    const userMessage =
+      replyTo === undefined
+        ? null
+        : messages.find((candidate) => candidate.id === replyTo) ?? null
+    const question = userMessage?.text ?? ''
+    if (question.length === 0) {
+      this.toast('error', '找不到对应的用户问题，无法重新生成')
+      return
+    }
+    const cutoff = replyTo ?? message.id
+    this.set({ threadBusy: true })
+    try {
+      await this.deps.api.truncateThread(thread.id, cutoff)
+      const fresh = await this.deps.api.getThread(thread.id)
+      this.set({ thread: fresh, pending: null, answer: initialAnswer() })
+      await this.refreshThreads()
+    } catch (error) {
+      this.toast('error', error instanceof Error ? error.message : '重新生成失败')
+      return
+    } finally {
+      this.set({ threadBusy: false })
+    }
+    await this.send(question)
+  }
+
   // ---------------------------------------------------------------- context
 
   setContextOn(contextOn: boolean): void {
@@ -333,6 +507,7 @@ export class SideAskStore {
         state.settings,
         controller.signal,
         state.customPatterns,
+        state.pins,
       )
       this.set({ extracting: false, extractionReason: result.reason, contextDetails: result.bundle })
       if (result.reason === 'aborted') {
@@ -364,16 +539,17 @@ export class SideAskStore {
     })
 
     try {
-      // Reuse the main conversation's current model route. This is metadata, not
-      // content, so it is sent even when context reading is off — otherwise a
-      // global default on an uncredentialed route would break every question.
-      const routeHint = this.deps.contextSource.routeHint()
+      // Reuse the main conversation's current model route unless the user picked
+      // one in the window. This is metadata, not content, so it is sent even when
+      // context reading is off — otherwise a global default on an uncredentialed
+      // route would break every question.
+      const routeHint = this.state.modelOverride ?? this.deps.contextSource.routeHint()
       await this.deps.api.ask({
         request: {
           requestId,
           threadId: thread.id,
           question: text,
-          context: bundle,
+          context: this.applyExclusions(bundle),
           ...(state.sessionId === null ? {} : { sessionId: state.sessionId }),
           ...(routeHint === null ? {} : { routeHint }),
         },
@@ -394,6 +570,26 @@ export class SideAskStore {
     }
   }
 
+  /**
+   * Drop the context items the user unchecked before sending. Kept separate from
+   * extraction so the details panel can still show everything that was read.
+   */
+  private applyExclusions(bundle: ContextBundle | null): ContextBundle | null {
+    if (bundle === null) return null
+    const excluded = new Set(this.state.excludedMessageIds)
+    if (excluded.size === 0) return bundle
+    const items: ContextItem[] = bundle.items.filter((item) => !excluded.has(item.messageId))
+    if (items.length === bundle.items.length) return bundle
+    const usedTokens = items.reduce((sum, item) => sum + item.tokens, 0) + bundle.stats.summaryTokens
+    const selection = bundle.selection !== null && excluded.has(items.find((item) => item.source === 'selection')?.messageId ?? '') ? null : bundle.selection
+    return {
+      ...bundle,
+      items,
+      selection,
+      stats: { ...bundle.stats, usedTokens },
+    }
+  }
+
   private handleEvent(event: AskEvent): void {
     if (event.type === 'settings') {
       // The host is the source of truth for live settings.
@@ -401,7 +597,8 @@ export class SideAskStore {
       return
     }
     if (event.type === 'accepted') {
-      this.set({ answer: reduceAnswer(this.state.answer, event) })
+      // The explicit pins/exclusions applied to this turn are consumed.
+      this.set({ pins: [], excludedMessageIds: [], answer: reduceAnswer(this.state.answer, event) })
       return
     }
     this.set({ answer: reduceAnswer(this.state.answer, event) })

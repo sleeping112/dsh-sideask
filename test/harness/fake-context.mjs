@@ -45,11 +45,13 @@ export async function loadHostPlugin() {
 
 export const ROUTE = Object.freeze({
   bootstrap: `${ROUTE_PREFIX}/bootstrap`,
+  models: `${ROUTE_PREFIX}/models`,
   ask: `${ROUTE_PREFIX}/ask`,
   cancel: `${ROUTE_PREFIX}/cancel`,
   health: `${ROUTE_PREFIX}/health`,
   threads: `${ROUTE_PREFIX}/threads`,
   thread: (id) => `${ROUTE_PREFIX}/threads/${encodeURIComponent(id)}`,
+  truncate: (id) => `${ROUTE_PREFIX}/threads/${encodeURIComponent(id)}/truncate`,
 })
 
 // ------------------------------------------------------------------ config
@@ -525,12 +527,26 @@ export function parseSse(text) {
  *
  * Every captured `stream(options)` argument is pushed to `requests`, so tests
  * can assert on the exact `messages` the plugin sent.
+ *
+ * `catalog` is an OPTIONAL capability mirroring the host's async
+ * `ctx.llm.listModels(provider)`. Pass `{ [provider]: rows }` or a
+ * `(provider) => rows` function (throw to simulate a broken adapter). When
+ * omitted, the fake has no `listModels` method at all — the "host does not
+ * advertise a catalogue" case — which is the default so existing tests keep
+ * running against the same service shape.
  */
 export class FakeLlm {
-  constructor({ providers, script = { mode: 'success', answer: '默认回答' } } = {}) {
+  constructor({ providers, script = { mode: 'success', answer: '默认回答' }, catalog = null } = {}) {
     this.providers = providers ?? [{ id: 'deepseek', provider: 'deepseek', label: 'DeepSeek' }]
     this.script = script
+    this.catalog = catalog
     this.requests = []
+    if (catalog !== null) {
+      this.listModels = async (provider) => {
+        const entries = typeof catalog === 'function' ? catalog(provider) : catalog[provider] ?? []
+        return Array.isArray(entries) ? entries : []
+      }
+    }
   }
 
   listProviders() {

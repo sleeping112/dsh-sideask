@@ -15,6 +15,8 @@ import type {
   AskEvent,
   AskRequest,
   BootstrapResponse,
+  ModelsResponse,
+  ProviderModels,
   SideAskError,
   Thread,
   ThreadListEntry,
@@ -38,6 +40,10 @@ export interface HostApi {
   createThread(sessionId: string | null, signal?: AbortSignal): Promise<Thread>
   deleteThread(id: string, signal?: AbortSignal): Promise<boolean>
   clearThreads(signal?: AbortSignal): Promise<number>
+  /** Remove `fromMessageId` and everything after it (used by "regenerate"). */
+  truncateThread(threadId: string, fromMessageId: string, signal?: AbortSignal): Promise<number>
+  /** Provider/model catalog for the in-window model picker. */
+  listModels(signal?: AbortSignal): Promise<ProviderModels[]>
 }
 
 async function readError(response: Response): Promise<SideAskError> {
@@ -172,6 +178,22 @@ export function createHostApi(): HostApi {
         ...(signal === undefined ? {} : { signal }),
       })
       return result.cleared ?? 0
+    },
+
+    async truncateThread(threadId, fromMessageId, signal) {
+      const result = await requestJson<{ removed: number }>(`/threads/${encodeURIComponent(threadId)}/truncate`, {
+        method: 'POST',
+        body: JSON.stringify({ fromMessageId }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return result.removed ?? 0
+    },
+
+    async listModels(signal) {
+      const result = await requestJson<ModelsResponse>('/models', {
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return Array.isArray(result.providers) ? result.providers : []
     },
   }
 }

@@ -18,7 +18,7 @@
  * the side conversation cannot pollute the main one.
  */
 
-import type { SideAskError } from '../shared/contract.js'
+import type { ProviderModels, SideAskError } from '../shared/contract.js'
 import { fromFailure, makeError } from '../shared/errors.js'
 
 /** Minimal structural types for the injected services (no runtime import). */
@@ -42,9 +42,29 @@ export interface LlmProviderInfo {
   [key: string]: unknown
 }
 
+/**
+ * One row of an adapter-advertised model catalogue.
+ *
+ * `ctx.llm.listModels(provider)` resolves to `{ provider, id, name, … }` rows on
+ * the shipped host, but adapters in the wild may expose the id as `model` or
+ * only as `name`; the normaliser accepts all three rather than guessing.
+ */
+export interface LlmModelRow {
+  id?: string
+  model?: string
+  name?: string
+  [key: string]: unknown
+}
+
 export interface LlmService {
   stream(options: Record<string, unknown>): AsyncIterable<LlmStreamChunk>
   listProviders(): LlmProviderInfo[]
+  /**
+   * Optional model catalogue (async on the shipped host). It is optional
+   * because a headless/older wiring may not mount it at all, in which case the
+   * picker simply reports "no model list" instead of failing.
+   */
+  listModels?(provider: string): Promise<readonly LlmModelRow[]> | readonly LlmModelRow[]
 }
 
 export interface DefaultModelService {
@@ -169,6 +189,84 @@ export function listProviderIds(llm: LlmService | undefined): string[] {
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
   } catch {
     return []
+  }
+}
+
+/** Caps that keep one catalogue call cheap; the picker never needs more. */
+const MAX_MODEL_PROVIDERS = 8
+const MAX_MODELS_PER_PROVIDER = 50
+const MAX_MODEL_TEXT_CHARS = 64
+/** Wall-clock ceiling: a hung adapter must not stall the picker route. */
+const MODELS_TIMEOUT_MS = 5000
+
+/**
+ * Normalise one provider's catalogue to `{ id, name }` rows.
+ *
+ * Adapters are third-party code: rows can be malformed, duplicated, or expose
+ * the id under a different key. Everything is guarded and bounded here so the
+ * route can forward the result without re-validating it.
+ */
+function normalizeModels(raw: unknown): ProviderModels['models'] {
+  if (!Array.isArray(raw)) return []
+  const models: ProviderModels['models'] = []
+  const seen = new Set<string>()
+  for (const candidate of raw) {
+    if (models.length >= MAX_MODELS_PER_PROVIDER) break
+    const row = typeof candidate === 'string' ? { id: candidate } : candidate
+    if (row === null || typeof row !== 'object') continue
+    const record = row as Record<string, unknown>
+    const rawId = record['id'] ?? record['model'] ?? record['name']
+    if (typeof rawId !== 'string') continue
+    const id = rawId.trim().slice(0, MAX_MODEL_TEXT_CHARS)
+    if (id.length === 0 || seen.has(id)) continue
+    seen.add(id)
+    const rawName = record['name']
+    const name = (typeof rawName === 'string' && rawName.trim().length > 0 ? rawName.trim() : id).slice(
+      0,
+      MAX_MODEL_TEXT_CHARS,
+    )
+    models.push({ id, name })
+  }
+  return models
+}
+
+/**
+ * Describe the selectable models of every provider the host exposes.
+ *
+ * Deliberately async and best-effort, unlike {@link candidateRoutes}: the
+ * shipped `ctx.llm.listModels(provider)` is asynchronous and an adapter can
+ * legitimately return an empty catalogue (or throw). A failure affects only
+ * that provider's entry; the caller gets an empty list instead of an error, so
+ * the picker degrades to "no model list" rather than blocking the window.
+ */
+export async function describeModels(llm: LlmService | undefined): Promise<ProviderModels[]> {
+  if (llm === undefined || typeof llm.listModels !== 'function') return []
+  const listModels = llm.listModels.bind(llm)
+  const providerIds = listProviderIds(llm).slice(0, MAX_MODEL_PROVIDERS)
+  if (providerIds.length === 0) return []
+
+  const tasks = providerIds.map(async (provider): Promise<ProviderModels> => {
+    try {
+      return { provider, models: normalizeModels(await listModels(provider)) }
+    } catch {
+      // One broken adapter must not hide the other providers from the picker.
+      return { provider, models: [] }
+    }
+  })
+
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    const settled = await Promise.race([
+      Promise.allSettled(tasks),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), MODELS_TIMEOUT_MS)
+        timer.unref?.()
+      }),
+    ])
+    if (settled === null) return []
+    return settled.flatMap((outcome) => (outcome.status === 'fulfilled' ? [outcome.value] : []))
+  } finally {
+    if (timer !== null) clearTimeout(timer)
   }
 }
 

@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-11-22
+
+Iteration 2 of the competitive-gap plan (see `docs/verification.md` §16).
+
+### Added
+- **Regenerate any (last) answer**: a "重新生成" button on the last assistant
+  message truncates that turn on the host (`POST /threads/<id>/truncate`) and
+  re-asks the same question. Works for failed answers with empty text too; only
+  the last answer is allowed (removing later turns silently would be surprising).
+- **`#` pinned context**: a picker lists the newest main-conversation messages and
+  pins the chosen ones. Pins rank below a live selection but above the automatic
+  recent window, appear as `c1…` with the `用户钉住` label in the prompt, get their
+  own budget share (35%, `DEFAULT_PINS_RATIO`), and are consumed by the next ask.
+  Pinned chips are shown above the composer and can be removed individually.
+- **Editable context before sending**: the details panel can run extraction on
+  demand ("读取当前上下文") and lists every item with a checkbox; unchecked items
+  are removed from the request and the used-token count is recomputed.
+- **In-window model picker**: `GET /models` lists provider/model catalogs
+  (`ctx.llm.listModels` normalised, capped, 5 s timeout); selecting one is stored
+  locally and sent as the `routeHint`, so it only affects side questions. The
+  default stays "follow the main conversation"; adapters that advertise no models
+  show an honest empty state.
+
+### Fixed
+- Explicit pins are still usable when no main session is bound (they no longer
+  fall into the question-only bundle).
+- The last assistant message with empty text (failed turn) now exposes its actions
+  (regenerate), while write-back buttons stay hidden for empty text.
+
+### Verified
+- 200/200 tests (10 host truncate/models + 8 draft helpers + 4 pinned-context
+  cases added in this iteration).
+- Real-browser CDP: regenerate changed both turn ids while keeping 2 messages;
+  pinned item rendered as `c1 钉住`, exclusion set `excludedMessageIds`, restore
+  cleared it; `/models` returned 200; selecting a model changed the host's error
+  from `deepseek-official` to `deepseek-account`, proving the route hint took
+  effect; 0 console errors / 0 uncaught exceptions.
+
 ## [0.2.0] — 2026-11-22
 
 Iteration 1 of the competitive-gap plan (see `docs/verification.md` §15).

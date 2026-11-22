@@ -16,7 +16,7 @@
  */
 
 import type { ChatMessage, ContextBundle, ContextSelection, SideAskSettings } from '../shared/contract.js'
-import { ProjectionCache, buildContext, buildQuestionOnlyBundle } from '../shared/context.js'
+import { ProjectionCache, buildContext, buildQuestionOnlyBundle, type PinnedInput } from '../shared/context.js'
 import type { SessionsService, SessionBinding } from './types.js'
 import { entriesToMessages, lastRouteHint, projectIncrementally } from './transcript.js'
 
@@ -113,6 +113,12 @@ export class ContextSource {
     return entriesToMessages(this.entries)
   }
 
+  /** The newest `limit` main-conversation messages (for the `#` pin picker). */
+  recentMessages(limit = 20): ChatMessage[] {
+    const count = Math.max(1, Math.min(60, Math.trunc(limit)))
+    return entriesToMessages(this.entries).slice(-count)
+  }
+
   /**
    * Provider/model the main conversation is using.
    *
@@ -148,9 +154,28 @@ export class ContextSource {
     settings: SideAskSettings,
     signal: AbortSignal,
     customPatterns: string[] = [],
+    pins: PinnedInput[] = [],
   ): Promise<ExtractionResult> {
     if (!settings.readContext) return { bundle: buildQuestionOnlyBundle(question, settings), reason: 'disabled' }
     if (this.binding === null || this.sessionId === null) {
+      // No bound session: explicit pins are still usable (they come from the UI,
+      // not from the transcript), so keep them instead of dropping everything.
+      if (pins.length > 0) {
+        const bundle = buildContext({
+          snapshot: { sessionId: this.sessionId ?? 'unbound', revision: 0, messages: [] },
+          question,
+          settings: {
+            readContext: settings.readContext,
+            recentMessageLimit: settings.recentMessageLimit,
+            contextBudgetTokens: settings.contextBudgetTokens,
+            autoSummary: settings.autoSummary,
+            redactSensitive: settings.redactSensitive,
+          },
+          redactOptions: { customPatterns },
+          pins,
+        })
+        return { bundle, reason: 'no-session' }
+      }
       return { bundle: buildQuestionOnlyBundle(question, settings), reason: 'no-session' }
     }
     if (signal.aborted) return { bundle: null, reason: 'aborted' }
@@ -189,6 +214,7 @@ export class ContextSource {
           },
           redactOptions: { customPatterns },
           cache: this.projections,
+          pins,
         })
         // Drop cache entries for messages that fell out of the window.
         const keep = new Set(projected.messages.map((message) => message.id))
