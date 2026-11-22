@@ -31,8 +31,10 @@ import type {
 } from './types.js'
 import { createHostApi } from './host-api.js'
 import { ContextSource } from './context-source.js'
+import { reveal } from './jump.js'
 import { matchesHotkey, parseHotkey } from './hotkey.js'
 import { SessionProbe } from './session-probe.js'
+import { pickFallbackSession } from './session-fallback.js'
 import { SideAskStore } from './store.js'
 import { ShadowHost } from './window-shell.js'
 
@@ -110,7 +112,7 @@ export function createPlugin(): PluginExports {
     // Debug handle: lets a developer inspect state from the console without
     // adding a second RPC surface.
     try {
-      ;(window as unknown as Record<string, unknown>)['__dshSideAsk'] = { store, contextSource, version: '0.1.3' }
+      ;(window as unknown as Record<string, unknown>)['__dshSideAsk'] = { store, contextSource, reveal, version: '0.2.0' }
     } catch {
       // Non-browser context: nothing to expose.
     }
@@ -193,20 +195,18 @@ export function createPlugin(): PluginExports {
       }
     }
 
-    // Fallback: if no probe fired shortly after boot, adopt the most recent
-    // session from the catalog (advisory only; the window works unbound too).
+    // Fallback: if no probe fired shortly after boot, adopt the most plausible
+    // session from the catalog. Never blindly `ids[0]`: the picker prefers the
+    // session retained by the main view, then the most recently updated one, and
+    // ignores blank sessions (wrong binding is worse than no binding).
     safe('session fallback', () => {
       const timer = setTimeout(() => {
         if (store.getSnapshot().sessionId !== null) return
         const list = sessions?.list
         if (list === undefined) return
         try {
-          const snapshot = list.getSnapshot()
-          const id = snapshot.ids[0]
-          if (typeof id === 'string' && id.length > 0) {
-            const row = snapshot.byId[id]
-            void store.setSession(id, row?.displayTitle ?? row?.title)
-          }
+          const picked = pickFallbackSession(list.getSnapshot())
+          if (picked !== null) void store.setSession(picked.id)
         } catch (error) {
           warn('session fallback lookup failed', error)
         }

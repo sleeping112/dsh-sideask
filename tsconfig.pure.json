@@ -8,6 +8,8 @@
     "src/client/stream.ts",
     "src/client/transcript.ts",
     "src/client/markdown.ts",
-    "src/client/hotkey.ts"
+    "src/client/hotkey.ts",
+    "src/client/jump.ts",
+    "src/client/session-fallback.ts"
   ]
 }

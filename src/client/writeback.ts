@@ -106,6 +106,13 @@ export async function writeBack(kind: WritebackKind, text: string, deps: Writeba
 
   if (kind === 'draft') {
     if (actions !== null) {
+      // "Insert as draft" replaces whatever is in the main composer: make that
+      // destructive step explicit instead of silently overwriting a draft.
+      const confirmed =
+        typeof window === 'undefined' || typeof window.confirm !== 'function'
+          ? true
+          : window.confirm('将用旁问内容替换主对话输入框里现有的草稿，继续？')
+      if (!confirmed) return { ok: false, via: 'draft', note: '已取消（未修改主对话草稿）' }
       try {
         actions.setDraft(body)
         return { ok: true, via: 'draft' }

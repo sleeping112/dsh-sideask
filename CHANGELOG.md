@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-11-22
+
+Iteration 1 of the competitive-gap plan (see `docs/verification.md` §15).
+
+### Added
+- **Selection affordance**: selecting text anywhere in the main conversation
+  shows a small floating 「旁问」 button next to the selection; clicking it
+  captures that text as the highest-priority context and opens the side thread.
+  Implemented as our own DOM listener, because the host's
+  `conversation.chat.text-interaction` slot is KEYED and only the interaction
+  that calls `request.open()` is rendered (`ui-chat/lib/client.js:3683-3688`) —
+  the official quote plugin owns that slot.
+- **Per-thread composer drafts**: each thread keeps its own draft (and the
+  "new question" slot has one too), persisted in
+  `localStorage['dsh-sideask.draft.v2']`. Switching threads no longer loses what
+  you were typing; sending or deleting a thread clears its draft.
+- **Citation jump**: clicking an inline `cN` chip or a citation chip now reveals
+  the source message in the main conversation (scroll + temporary outline).
+  Exact message ids are tried first, then a text-excerpt match; when nothing
+  matches, the excerpt is shown in a toast instead of failing silently.
+- **Session fallback picker**: the advisory session binding no longer blindly
+  takes `sessions.list().ids[0]`; it prefers the session retained by the main
+  view, then the most recently updated one, and ignores blank sessions
+  (`src/client/session-fallback.ts`).
+
+### Changed
+- **Accessibility**: the entrance pill is a real `<button>` now (focusable,
+  labelled, Enter/Space activate it) instead of a clickable `<div>`.
+- **Safety**: "插入为草稿" asks for confirmation before replacing whatever is
+  already in the main composer.
+
+### Verified
+- 179/179 tests (`jump` 14 + `session-fallback` 10 + draft helpers).
+- Real-browser CDP: pill is a focused BUTTON with an aria-label; selection
+  affordance appears at the selection and clicking it opens the window with the
+  selected text captured; per-thread drafts survive thread switches (and a new
+  thread starts empty); `reveal` returns `excerpt` + applies the highlight and
+  `not-found` for an unknown excerpt; 0 console errors / 0 uncaught exceptions.
+
 ## [0.1.8] — 2026-11-18
 
 ### Added

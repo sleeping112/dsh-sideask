@@ -162,7 +162,7 @@ export const PANEL_CSS = `
   position: fixed; z-index: 60; display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 11px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--sa-border); background: var(--sa-bg); color: var(--sa-fg);
-  box-shadow: var(--sa-shadow); font-size: 12px; user-select: none;
+  box-shadow: var(--sa-shadow); font-family: inherit; font-size: 12px; user-select: none;
 }
 .sa-pill:hover { border-color: var(--sa-accent); }
 
@@ -234,6 +234,16 @@ export const PANEL_CSS = `
 .sa-md-quote { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--sa-border); color: var(--sa-fg-weak); }
 .sa-caret { display: inline-block; width: 6px; height: 13px; background: var(--sa-accent); vertical-align: text-bottom; animation: sa-blink 1s steps(1) infinite; margin-left: 1px; }
 @keyframes sa-blink { 50% { opacity: 0 } }
+
+/* Selection affordance: floats next to the current text selection. */
+.sa-selbtn {
+  position: fixed; z-index: 2147483000;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--sa-border); background: var(--sa-bg); color: var(--sa-fg);
+  box-shadow: var(--sa-shadow); font: 12px/1 inherit; cursor: pointer; user-select: none;
+}
+.sa-selbtn:hover { border-color: var(--sa-accent); color: var(--sa-accent); }
 
 @media (prefers-color-scheme: light) {
   .sa-root {

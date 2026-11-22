@@ -19,6 +19,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { ContextSource } from './context-source.js'
 import { ContextPanel } from './context-panel.js'
 import { ThreadMenu } from './thread-menu.js'
+import { SelectionAction } from './selection-action.js'
 import type { SideAskStore, UiState } from './store.js'
 import { PANEL_CSS } from './styles.js'
 import { ThreadView } from './thread-view.js'
@@ -226,28 +227,34 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
   // follows the docked corner (default: the configured `defaultCorner`).
   if (!state.open || geometry.minimized) {
     return (
-      <div className="sa-root">
-        <div
-          className="sa-pill"
-          style={pillStyle(geometry.corner, { top: settings.pillOffset })}
-          data-testid="sideask-pill"
-          onClick={() => {
-            store.setOpen(true)
-            markTouched()
-            setGeometry((current) => focusOnly(current))
-          }}
-          title={`${sessionLabel} · 点击展开（${settings.hotkey}）`}
-        >
-          <span className="sa-dot" data-busy={streaming} />
-          旁问
-          {state.threads.length > 0 ? <span style={{ opacity: 0.6 }}>·{state.threads.length}</span> : null}
+      <>
+        <div className="sa-root">
+          <button
+            type="button"
+            className="sa-pill"
+            style={pillStyle(geometry.corner, { top: settings.pillOffset })}
+            data-testid="sideask-pill"
+            aria-label="打开旁问（悬浮轻对话）"
+            onClick={() => {
+              store.setOpen(true)
+              markTouched()
+              setGeometry((current) => focusOnly(current))
+            }}
+            title={`${sessionLabel} · 点击展开（${settings.hotkey}）`}
+          >
+            <span className="sa-dot" data-busy={streaming} />
+            旁问
+            {state.threads.length > 0 ? <span style={{ opacity: 0.6 }}>·{state.threads.length}</span> : null}
+          </button>
         </div>
-      </div>
+        <SelectionAction store={store} />
+      </>
     )
   }
 
   return (
-    <div className="sa-root">
+    <>
+      <div className="sa-root">
       <div
         className="sa-window"
         style={{ left: position.left, top: position.top, width: geometry.width, height: geometry.height }}
@@ -340,7 +347,9 @@ function WindowShell({ store, conversation, contextSource }: ShellProps): React.
           title="拖动调整大小"
         />
       </div>
-    </div>
+      </div>
+      <SelectionAction store={store} />
+    </>
   )
 }
 

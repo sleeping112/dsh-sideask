@@ -602,5 +602,51 @@ error surface {"occurrences":1,"errorCards":1,"bubbles":2,"bubbleHasErrorCode":f
 
 `13.4` 第 4–7 项（引用定位、悬浮球 a11y、草稿覆盖、会话兜底），以及更长远的 P1/P2 需求。
 
+---
+
+## 15. 迭代 1（2026-11-22）：划词入口、引用跳转、按线程草稿、a11y
+
+对标结论见对话记录：Trae 的侧边对话有"从选区/回复直接进入"、按会话独立草稿、
+`#` 上下文引用等交互；本迭代先补"能不能顺手用起来"的四项。
+
+### 15.1 关键发现：不能复用宿主划词插槽
+
+`conversation.chat.text-interaction` 是 **keyed 插槽**，聊天壳只渲染
+`textInteraction.active.id` 对应的那一个 key（`ui-chat/lib/client.js:3683-3688`），
+而 active 由"第一个 `request.open()` 的交互"决定；官方引用插件先注册并总是 open。
+因此我们在该插槽里注册自己的按钮不会显示（也解释了为什么之前"捕获了选区但用户看不到入口"）。
+结论：改为**自建划词浮钮**（DOM selection 监听 + body 级按钮），不抢占官方菜单。
+
+### 15.2 真机验证（隔离实例 + headless Edge + CDP）
+
+```
+1 pill                       {"tag":"BUTTON","focused":true,"aria":"打开旁问（悬浮轻对话）"}
+2 select                     {"text":"这是用于验证划词入口的一"}
+2b affordance                {"present":true,"label":"旁问","left":157,"top":159}
+2c after click               {"open":true,"selection":"这是用于验证划词入口的一","window":true}
+3 draft A                    {"value":"线程A草稿","drafts":{"__new__":"线程A草稿"}}
+3b new thread                {"thread":"sa_mwrua0od…","value":""}
+draft restored               {"thread":"sa_mwmb1bsc…","expected":"sa_mwmb1bsc…","value":"这是线程A的草稿"}
+4 jump                       {"first":"excerpt","highlighted":true,"second":"not-found"}
+errors: 0 | exceptions: 0
+```
+
+即：悬浮球是真实 button 且可聚焦；划词后浮钮出现在选区旁、点击开窗并带上选中文本；
+草稿按线程保存并在切回时恢复；`reveal` 的摘录回退与高亮、未找到分支都符合预期。
+截图：`sideask-selection.png`。
+
+### 15.3 仍待处理（迭代 2）
+
+1. 重新生成所有回答（含成功回答）；
+2. 发送前可编辑上下文（剔除某条）；
+3. `#` 引用面板（钉住消息/选中/摘要）；
+4. 窗口内模型选择（复用 `routeHint` 通道）；
+5. Fork 会话副本、摘要层落地、一键"交给主对话执行"。
+
+### 15.4 已知取舍
+
+划词时官方引用菜单与我们的浮钮可能同时出现（我们无法进入它的 keyed 插槽）。
+若后续宿主提供"多 opener"或可组合的划词插槽，可合二为一。
+
 
 

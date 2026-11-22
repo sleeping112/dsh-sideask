@@ -24,6 +24,14 @@ import type {
 } from '../shared/contract.js'
 import { makeError } from '../shared/errors.js'
 import type { ContextSource, ExtractionResult, SelectionNote } from './context-source.js'
+import {
+  DRAFT_STORAGE_KEY,
+  getDraft,
+  loadDrafts,
+  saveDrafts,
+  setDraft as mapSetDraft,
+  type DraftMap,
+} from './draft.js'
 import type { HostApi } from './host-api.js'
 import { initialAnswer, reduceAnswer, type AnswerState } from './stream.js'
 import type { ConversationService } from './types.js'
@@ -55,6 +63,8 @@ export interface UiState {
   sessionTitle: string | null
   lastQuestion: string
   threadBusy: boolean
+  /** Per-thread composer drafts (UI only, never sent to the host until ask). */
+  drafts: DraftMap
   toast: Toast | null
 }
 
@@ -98,6 +108,7 @@ function initialState(): UiState {
     sessionTitle: null,
     lastQuestion: '',
     threadBusy: false,
+    drafts: {},
     toast: null,
   }
 }
@@ -109,7 +120,15 @@ export class SideAskStore {
   private initialised = false
   private initialising = false
 
-  constructor(private readonly deps: StoreDeps) {}
+  constructor(private readonly deps: StoreDeps) {
+    // Drafts are UI-only state: restore them so switching threads (or reloading
+    // the page) never loses what the user was typing.
+    try {
+      this.state = { ...this.state, drafts: loadDrafts(window.localStorage.getItem(DRAFT_STORAGE_KEY)) }
+    } catch {
+      // Private mode / storage disabled: drafts stay in memory for this session.
+    }
+  }
 
   // ------------------------------------------------------------ substrate
 
@@ -210,6 +229,35 @@ export class SideAskStore {
     if (note !== null) this.setOpen(true)
   }
 
+  // ---------------------------------------------------------------- drafts
+
+  /** Current thread's composer draft ('' when none). */
+  draftForCurrentThread(): string {
+    return getDraft(this.state.drafts, this.state.thread?.id ?? null)
+  }
+
+  /** Update the current thread's draft and persist the draft map. */
+  setComposerDraft(text: string): void {
+    const drafts = mapSetDraft(this.state.drafts, this.state.thread?.id ?? null, text)
+    this.set({ drafts })
+    try {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, saveDrafts(drafts))
+    } catch {
+      // Storage unavailable: keep the in-memory draft.
+    }
+  }
+
+  /** Drop a thread's draft (after sending, or when the thread is deleted). */
+  private dropDraft(threadId: string | null | undefined): void {
+    const drafts = mapSetDraft(this.state.drafts, threadId ?? null, '')
+    this.set({ drafts })
+    try {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, saveDrafts(drafts))
+    } catch {
+      // Ignore.
+    }
+  }
+
   // ---------------------------------------------------------------- context
 
   setContextOn(contextOn: boolean): void {
@@ -273,6 +321,8 @@ export class SideAskStore {
     const requestId = `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
     const controller = new AbortController()
     this.inflight = controller
+    // The question left the composer: its draft is no longer needed.
+    this.dropDraft(state.thread?.id ?? null)
 
     // 1) Context (async, cancellable, never blocks the send for long).
     let bundle: ContextBundle | null = null
@@ -395,6 +445,7 @@ export class SideAskStore {
     try {
       await this.deps.api.deleteThread(thread.id)
       this.set({ thread: null, pending: null, answer: initialAnswer() })
+      this.dropDraft(thread.id)
       await this.refreshThreads()
     } catch (error) {
       this.toast('error', error instanceof Error ? error.message : '删除失败')

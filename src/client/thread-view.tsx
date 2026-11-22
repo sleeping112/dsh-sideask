@@ -11,6 +11,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import type { Citation, SideAskError, ThreadMessage } from '../shared/contract.js'
 import { markdownBucket, parseMarkdown, type Block, type Inline } from './markdown.js'
+import { getDraft } from './draft.js'
+import { reveal, type LocatableRoot } from './jump.js'
 import type { SideAskStore, UiState } from './store.js'
 import { visibleMessages } from './store.js'
 import type { ContextSource } from './context-source.js'
@@ -26,7 +28,7 @@ export interface ThreadViewProps {
 
 // ------------------------------------------------------------------ markdown
 
-function renderInline(inlines: Inline[], citations: Map<string, Citation>): React.ReactNode[] {
+function renderInline(inlines: Inline[], citations: Map<string, Citation>, onCite: (citation: Citation) => void): React.ReactNode[] {
   return inlines.map((inline, index) => {
     switch (inline.type) {
       case 'bold':
@@ -46,6 +48,9 @@ function renderInline(inlines: Inline[], citations: Map<string, Citation>): Reac
             className="sa-cite"
             title={citation === undefined ? '该引用不在本次上下文中' : `${citation.messageId}｜${citation.excerpt}`}
             data-ref={inline.ref}
+            onClick={() => {
+              if (citation !== undefined) onCite(citation)
+            }}
           >
             <span className="sa-cite-num">{inline.ref}</span>
           </button>
@@ -57,7 +62,7 @@ function renderInline(inlines: Inline[], citations: Map<string, Citation>): Reac
   })
 }
 
-function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.ReactNode[] {
+function renderBlocks(blocks: Block[], citations: Map<string, Citation>, onCite: (citation: Citation) => void): React.ReactNode[] {
   return blocks.map((block, index) => {
     switch (block.type) {
       case 'code':
@@ -70,7 +75,7 @@ function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.
         const Tag = (block.level === 1 ? 'h3' : block.level === 2 ? 'h4' : 'h5') as 'h3' | 'h4' | 'h5'
         return (
           <Tag className="sa-md-h" key={index}>
-            {renderInline(block.inlines, citations)}
+            {renderInline(block.inlines, citations, onCite)}
           </Tag>
         )
       }
@@ -79,7 +84,7 @@ function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.
         return (
           <Tag className="sa-md-list" key={index}>
             {block.items.map((item, itemIndex) => (
-              <li key={itemIndex}>{renderInline(item, citations)}</li>
+              <li key={itemIndex}>{renderInline(item, citations, onCite)}</li>
             ))}
           </Tag>
         )
@@ -87,13 +92,13 @@ function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.
       case 'quote':
         return (
           <div className="sa-md-quote" key={index}>
-            {renderInline(block.inlines, citations)}
+            {renderInline(block.inlines, citations, onCite)}
           </div>
         )
       default:
         return (
           <p className="sa-md-p" key={index}>
-            {renderInline(block.inlines, citations)}
+            {renderInline(block.inlines, citations, onCite)}
           </p>
         )
     }
@@ -101,7 +106,17 @@ function renderBlocks(blocks: Block[], citations: Map<string, Citation>): React.
 }
 
 /** Answer body: Markdown AST plus a caret while streaming. */
-function AnswerBody({ text, citations, streaming }: { text: string; citations: Citation[]; streaming: boolean }): React.ReactElement {
+function AnswerBody({
+  text,
+  citations,
+  streaming,
+  onCite,
+}: {
+  text: string
+  citations: Citation[]
+  streaming: boolean
+  onCite: (citation: Citation) => void
+}): React.ReactElement {
   // Re-parsing the whole answer on every token is O(n²) for long answers. The
   // memo key is a *bucket* (see markdownBucket), so streaming re-renders at most
   // once per STREAM_BUCKET_CHARS characters, and the settled text is parsed once
@@ -114,7 +129,7 @@ function AnswerBody({ text, citations, streaming }: { text: string; citations: C
   const citationMap = useMemo(() => new Map(citations.map((citation) => [citation.ref, citation])), [citations])
   return (
     <>
-      {renderBlocks(blocks, citationMap)}
+      {renderBlocks(blocks, citationMap, onCite)}
       {streaming ? <span className="sa-caret" aria-hidden="true" /> : null}
     </>
   )
@@ -191,6 +206,7 @@ function MessageRow({
   contextSource,
   streaming,
   suppressError,
+  onCite,
 }: {
   message: ThreadMessage
   store: SideAskStore
@@ -200,12 +216,13 @@ function MessageRow({
   streaming: boolean
   /** The live ErrorState card already explains this failure. */
   suppressError: boolean
+  onCite: (citation: Citation) => void
 }): React.ReactElement {
   const isUser = message.role === 'user'
   return (
     <div className={isUser ? 'sa-msg sa-msg-user' : 'sa-msg sa-msg-assistant'}>
       <div className="sa-bubble">
-        <AnswerBody text={message.text} citations={message.citations ?? []} streaming={streaming} />
+        <AnswerBody text={message.text} citations={message.citations ?? []} streaming={streaming} onCite={onCite} />
         {!suppressError && message.error !== null && message.error !== undefined ? (
           <div className="sa-error-code" style={{ marginTop: 4 }}>
             {errorText(message.error)}
@@ -218,14 +235,16 @@ function MessageRow({
       {!isUser && (message.citations ?? []).length > 0 ? (
         <div className="sa-actions">
           {(message.citations ?? []).map((citation) => (
-            <span
+            <button
               key={citation.ref}
+              type="button"
               className="sa-chip"
-              title={`${citation.messageId}｜${citation.excerpt}`}
+              title={`${citation.messageId}｜${citation.excerpt}（点击定位主对话原文）`}
               data-message-id={citation.messageId}
+              onClick={() => onCite(citation)}
             >
               引用 {citation.ref}
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
@@ -282,7 +301,10 @@ function ErrorState({ store, state }: { store: SideAskStore; state: UiState }): 
 }
 
 function Composer({ store, state }: { store: SideAskStore; state: UiState }): React.ReactElement {
-  const [draft, setDraft] = useState('')
+  // The draft lives in the store, keyed by thread id, so switching threads keeps
+  // each thread's own draft (and it survives a page reload via localStorage).
+  const draft = getDraft(state.drafts, state.thread?.id ?? null)
+  const setDraft = useCallback((text: string): void => store.setComposerDraft(text), [store])
   const textarea = useRef<HTMLTextAreaElement | null>(null)
   const streaming = state.answer.status === 'streaming'
   const tokens = state.contextDetails?.stats.usedTokens ?? 0
@@ -356,6 +378,29 @@ export function ThreadView({ store, state, conversation, contextSource }: Thread
   const scroller = useRef<HTMLDivElement | null>(null)
   const streaming = state.answer.status === 'streaming'
 
+  /**
+   * Jump to the cited message in the main conversation. The host transcript has
+   * no stable message ids, so `reveal` falls back to matching the citation
+   * excerpt; when even that fails we show the excerpt instead of failing silently.
+   */
+  const onCite = useCallback(
+    (citation: Citation) => {
+      let outcome: 'message-id' | 'excerpt' | 'not-found' = 'not-found'
+      try {
+        outcome = reveal(document as unknown as LocatableRoot, {
+          messageId: citation.messageId,
+          excerpt: citation.excerpt,
+        })
+      } catch {
+        outcome = 'not-found'
+      }
+      if (outcome === 'not-found') {
+        store.toast('info', `无法定位原文，摘录：${citation.excerpt.slice(0, 80)}`)
+      }
+    },
+    [store],
+  )
+
   // The live ErrorState card is the single error surface while a failure is the
   // current answer; the matching bubble must not repeat the same text.
   const lastAssistantId = (() => {
@@ -389,6 +434,7 @@ export function ThreadView({ store, state, conversation, contextSource }: Thread
             contextSource={contextSource}
             streaming={streaming && message.id.startsWith('stream-')}
             suppressError={errorCardVisible && message.id === lastAssistantId}
+            onCite={onCite}
           />
         ))}
         <ErrorState store={store} state={state} />
