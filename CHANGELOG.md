@@ -27,6 +27,9 @@ runtime behaviour changed.
   `pnpm.onlyBuiltDependencies`, so installs failed with
   `ERR_PNPM_IGNORED_BUILDS` before any check could run. esbuild's postinstall
   (which places the platform binary) is now approved explicitly.
+- Test harness: `delay()` keeps its timer ref'd so the persistence suites are
+  not cancelled on Node 22 CI runners, whose event loop can drain before the
+  store's debounced flush fires.
 - `release` workflow: pushing a `v*` tag builds, runs the gate and attaches a
   version-free `dsh-sideask.tgz` prebuilt tarball to the GitHub Release.
 - `SECURITY.md`, `CONTRIBUTING.md`, `PUBLISHING.md` (awesome-dsh-plugin

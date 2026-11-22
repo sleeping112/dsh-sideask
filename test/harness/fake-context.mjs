@@ -92,8 +92,11 @@ export function baseConfig(overrides = {}) {
 
 export function delay(ms) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    timer.unref?.()
+    // Ref'd on purpose. The persistence tests await this to let the store's
+    // debounced flush run; an unref'd timer lets the event loop drain first on
+    // CI's Node 22 ("Promise resolution is still pending but the event loop has
+    // already resolved"), cancelling the test before the flush can be observed.
+    setTimeout(resolve, ms)
   })
 }
 
