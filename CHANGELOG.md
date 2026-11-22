@@ -4,6 +4,48 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-11-23
+
+Delivery / packaging release ahead of the awesome-dsh-plugin submission. No
+runtime behaviour changed.
+
+### Added
+- `prepare` script: `dsh plugin --profile <name> add github:sleeping112/dsh-sideask`
+  now builds the host half and browser bundle during install (previously a
+  source install produced no `lib/` and the plugin could not load).
+- Repository assets: storefront icon (`assets/icon-180.png`), four screenshots
+  (`assets/screenshot-1..4.png`) and `screenshots.json` so marketplaces can show
+  the UI without hand-maintained URLs.
+- `scripts/preflight.mjs` delivery gate (16 checks: manifest, patch consistency,
+  built artifacts, package `files[]`, screenshots, icon, license, metadata,
+  README install instructions) — wired into CI, `prepublishOnly` and documented
+  in `PUBLISHING.md`.
+- CI now also runs the preflight and the memory-bounds check, uses pnpm with the
+  committed lockfile, and triggers on the `master` branch (the previous workflow
+  only listed `main`, so push builds never ran).
+- `release` workflow: pushing a `v*` tag builds, runs the gate and attaches a
+  version-free `dsh-sideask.tgz` prebuilt tarball to the GitHub Release.
+- `SECURITY.md`, `CONTRIBUTING.md`, `PUBLISHING.md` (awesome-dsh-plugin
+  submission playbook with the exact entry YAML), issue templates.
+- `package.json`: `repository` / `homepage` / `bugs` / `packageManager`; package
+  description rewritten to a single factual sentence.
+
+### Changed
+- `README.md` and `README.zh.md` rewritten for delivery: badges, screenshots,
+  generic `github:` install, current feature set (v0.6: draggable bubble, thread
+  menu/fork/regenerate, model picker, templates, summary, hand-off), accurate
+  configuration and limits tables, security/privacy/support sections.
+- `docs/quickstart.md` rewritten generically (profile-independent install,
+  current troubleshooting incl. draggable bubble), keeping the isolated
+  `DSH_HOME` smoke-test recipe.
+
+### Verified
+- `node scripts/preflight.mjs` → 16/16 checks; build + 241 tests unchanged.
+- `npm pack` contents include `lib/`, `cordis.patch.yml`, `assets/`,
+  `screenshots.json`, docs and policies.
+- Clean-room install check: `dsh plugin --profile web add github:sleeping112/dsh-sideask`
+  in a throwaway `DSH_HOME` (recorded in `docs/verification.md` §20).
+
 ## [0.6.0] — 2026-11-22
 
 ### Removed

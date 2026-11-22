@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a capability or a UX improvement for the side-chat window.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that the current version makes awkward?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should happen instead? Concrete behaviour is more useful than a general direction.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other tools/plugins that solve this, or workarounds you use today.
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Scope reminder
+      description: This plugin is deliberately read-only and never writes to the main conversation without an explicit click.
+      options:
+        - label: My proposal does not require the plugin to write to the main conversation automatically.
+          required: true

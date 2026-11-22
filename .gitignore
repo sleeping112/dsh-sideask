@@ -2,6 +2,8 @@
 lib/
 node_modules/
 *.log
+dist/
+*.tgz
 
 # Local dev harness
 .dshhome/

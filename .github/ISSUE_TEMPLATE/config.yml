@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting and local setup
+    url: https://github.com/sleeping112/dsh-sideask/blob/master/docs/quickstart.md
+    about: Install steps, troubleshooting table, and the isolated smoke-test recipe.
+  - name: Security report
+    url: https://github.com/sleeping112/dsh-sideask/security/advisories/new
+    about: Please report vulnerabilities privately instead of opening a public issue.

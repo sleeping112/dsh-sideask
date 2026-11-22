@@ -1,7 +1,7 @@
 {
   "name": "dsh-sideask",
-  "version": "0.6.0",
-  "description": "DeepSeek Harness 插件：当前主对话旁的悬浮轻对话助手。A floating side-conversation assistant for DSH: reads the current conversation read-only, answers in its own thread, and only writes back when you explicitly ask.",
+  "version": "0.6.1",
+  "description": "A floating side-conversation window for DeepSeek Harness: reads the current conversation read-only, answers with citations in its own thread, and writes back to the main composer only on an explicit click.",
   "type": "module",
   "main": "lib/host/index.js",
   "exports": {
@@ -16,9 +16,21 @@
     "README.zh.md",
     "CHANGELOG.md",
     "LICENSE",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "docs",
-    "examples"
+    "examples",
+    "assets",
+    "screenshots.json"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sleeping112/dsh-sideask.git"
+  },
+  "homepage": "https://github.com/sleeping112/dsh-sideask#readme",
+  "bugs": {
+    "url": "https://github.com/sleeping112/dsh-sideask/issues"
+  },
   "dsh": {
     "manifestVersion": 1,
     "bundle": {
@@ -68,17 +80,20 @@
     "node": ">=20",
     "dsh": ">=0.2.0-rc.1 <0.3.0-0"
   },
+  "packageManager": "pnpm@11.28.5",
   "peerDependencies": {
     "@deepseek-ai/schemastery": "~3.19.0"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "prepare": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "node scripts/build.mjs && node --test",
     "test:memory": "node scripts/build.mjs && node scripts/memory-check.mjs",
     "dev": "node scripts/build.mjs --watch",
     "check": "node scripts/check.mjs",
-    "prepublishOnly": "npm run typecheck && npm test && node scripts/check.mjs && node scripts/memory-check.mjs"
+    "preflight": "node scripts/preflight.mjs",
+    "prepublishOnly": "npm run typecheck && npm test && node scripts/check.mjs && npm run preflight && node scripts/memory-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

@@ -1,0 +1,48 @@
+name: release
+
+# Cut a release by pushing a version tag (the version must match package.json and
+# the top CHANGELOG entry, which the preflight step enforces):
+#
+#   git tag -a v0.6.0 -m "dsh-sideask v0.6.0" && git push origin v0.6.0
+#
+# The workflow builds the plugin, runs the delivery gate, and attaches a prebuilt
+# tarball as a GitHub Release asset. Its name is intentionally version-free so the
+# stable URL used by marketplace entries never rots:
+#
+#   https://github.com/sleeping112/dsh-sideask/releases/latest/download/dsh-sideask.tgz
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify (typecheck, build, checks, tests)
+        run: |
+          pnpm run typecheck
+          node scripts/build.mjs
+          node scripts/check.mjs
+          node scripts/preflight.mjs
+          node --test
+      - name: Pack prebuilt tarball
+        run: |
+          npm pack --pack-destination dist
+          Rename-Item -Path (Get-ChildItem dist/*.tgz | Select-Object -First 1).FullName -NewName dsh-sideask.tgz
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/dsh-sideask.tgz
+          generate_release_notes: true

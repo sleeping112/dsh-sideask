@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the side-chat window behaves incorrectly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please check `docs/quickstart.md` (troubleshooting)
+        first, and **do not paste credentials, API keys, or private conversation
+        content** — redact them.
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH version
+      placeholder: e.g. 0.2.2-rc.1
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: e.g. 0.6.0 (see package.json or the release tag)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Actual behaviour, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the side-chat window
+        2. Select a message and click 旁问
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Screenshots, the browser console error, or the server-side plugin log line. Remove private content first.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked the troubleshooting table in `docs/quickstart.md`.
+          required: true
+        - label: I removed credentials and private conversation content from this report.
+          required: true
