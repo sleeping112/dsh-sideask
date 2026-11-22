@@ -1,0 +1,6 @@
+# pnpm 11 removed `pnpm.onlyBuiltDependencies`; dependency build approval is
+# now configured here. esbuild's install script places the platform binary, so
+# it must be allowed or `pnpm install --frozen-lockfile` fails CI with
+# ERR_PNPM_IGNORED_BUILDS before any check runs.
+allowBuilds:
+  esbuild: true

@@ -23,6 +23,10 @@ runtime behaviour changed.
 - CI now also runs the preflight and the memory-bounds check, uses pnpm with the
   committed lockfile, and triggers on the `master` branch (the previous workflow
   only listed `main`, so push builds never ran).
+- `pnpm-workspace.yaml` with `allowBuilds: { esbuild: true }`: pnpm 11 removed
+  `pnpm.onlyBuiltDependencies`, so installs failed with
+  `ERR_PNPM_IGNORED_BUILDS` before any check could run. esbuild's postinstall
+  (which places the platform binary) is now approved explicitly.
 - `release` workflow: pushing a `v*` tag builds, runs the gate and attaches a
   version-free `dsh-sideask.tgz` prebuilt tarball to the GitHub Release.
 - `SECURITY.md`, `CONTRIBUTING.md`, `PUBLISHING.md` (awesome-dsh-plugin

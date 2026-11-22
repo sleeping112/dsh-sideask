@@ -13,16 +13,18 @@ It is written for this repository; the authoritative source is their
 | `package.json` declares `dsh.bundle.patch` → `./cordis.patch.yml` | ✅ present |
 | `cordis.patch.yml` inserts `id: sideask`, `name: dsh-sideask` | ✅ verified by `node scripts/preflight.mjs` |
 | Real, working code (not a placeholder or a meta-package) | ✅ host + browser halves, 241 tests |
-| Repository at least 1 day old | check your repo's creation date on GitHub |
-| `dsh-plugin` topic added to the repository | **do this in GitHub → About → Topics** |
+| Repository at least 1 day old | ✅ created 2026-11-18 |
+| `dsh-plugin` topic added to the repository | ✅ added (see below) |
 | Description states facts only, no marketing | ✅ see the entry below |
 | Category matches what it does | `ui` (a floating chat window inside the web UI) |
 | Up to 3 entries per PR | 1 entry here |
+| CI passes on `master` | ✅ install uses pnpm 11 `allowBuilds` (see `pnpm-workspace.yaml`) |
 
-## 1. Add the `dsh-plugin` topic
+## 1. The `dsh-plugin` topic
 
-GitHub → your repository → **About** (gear icon) → **Topics** → add
-`dsh-plugin` → save. There is no git command for topics.
+Already added on 2026-11-23 (GitHub topics API). If it ever goes missing, re-add
+it in GitHub → **About** (gear icon) → **Topics**; there is no git command for
+topics.
 
 Suggested About description:
 
