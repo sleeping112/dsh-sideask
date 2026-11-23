@@ -393,6 +393,41 @@ describe('cross-origin protection', () => {
   })
 })
 
+// ------------------------------------------------------- connection fence
+
+describe('DSH connection fence', () => {
+  it('returns 401 when Connection rejects an unauthenticated request', async (t) => {
+    const llm = successLlm()
+    const { host } = mount(t, { llm })
+    host.connection.rejection = 401
+    const response = await host.request(getRequest(ROUTE.bootstrap))
+    assert.equal(response.statusCode, 401)
+    assert.equal(response.json.error.code, 'BAD_REQUEST')
+    assert.match(response.json.error.message, /未认证/)
+    assert.equal(llm.requests.length, 0)
+    assert.equal(host.connection.calls.length, 1, 'requestRejection was not consulted')
+  })
+
+  it('returns 403 and never dispatches to the route handler', async (t) => {
+    const llm = successLlm()
+    const { host } = mount(t, { llm })
+    host.connection.rejection = 403
+    const response = await host.request(
+      jsonRequest(ROUTE.ask, { apiVersion: API_VERSION, requestId: 'r', question: 'q' }),
+    )
+    assert.equal(response.statusCode, 403)
+    assert.match(response.json.error.message, /跨站/)
+    assert.equal(llm.requests.length, 0, 'the ask handler ran past a rejected fence')
+  })
+
+  it('passes the request through when Connection admits it', async (t) => {
+    const { host } = mount(t)
+    const response = await host.request(getRequest(ROUTE.health))
+    assert.equal(response.statusCode, 200)
+    assert.equal(host.connection.calls.length, 1)
+  })
+})
+
 // ------------------------------------------------------------------ threads
 
 describe('thread store HTTP round-trip', () => {
@@ -615,8 +650,8 @@ describe('route registration', () => {
       assert.equal(paths.filter((entry) => entry === expected).length, 1, `route ${expected} must be registered exactly once`)
     }
 
-    // The plugin injected the web server rather than assuming it.
-    assert.deepEqual(host.ctx.injections, [['webServer']])
+    // The plugin injected the web server and DSH's connection fence.
+    assert.deepEqual(host.ctx.injections, [['webServer', 'connection']])
 
     host.dispose()
     assert.equal(host.webServer.registrations.length, 0, 'route disposers did not run')

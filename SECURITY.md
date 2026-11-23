@@ -20,7 +20,7 @@ Being precise here matters more than promising perfection:
 | Read the current selection | Only text the user has explicitly selected in the main chat. |
 | Call a model | Through the host's `ctx.llm.stream(...)`, using your existing account/model configuration. The plugin has no network code of its own and no API keys. |
 | Local storage | Side threads: `$DSH_HOME/storages/sideask/threads.json`. Browser `localStorage`: window geometry (`dsh-sideask.window.v2`), drafts (`dsh-sideask.draft.v2`), summary cache (`dsh-sideask.summary.v1`), model preference (`dsh-sideask.model.v1`). |
-| HTTP routes | A small local HTTP surface under `/plugins/dsh-sideask/api`, served by the same-origin dsh web server and protected by the same-origin guard. |
+| HTTP routes | A small local HTTP surface under `/plugins/dsh-sideask/api`, served by the same-origin dsh web server. Every route first applies DSH's `connection.requestRejection` fence (Host/Origin + browser authentication), then the plugin's own same-origin guard. |
 | Tools / files / shell | **None.** The plugin does not execute tools, does not read files, and does not spawn processes. |
 | Write to the main conversation | Only through explicit user actions: copy, quote, insert as draft, hand off as a task. Nothing is sent automatically. |
 

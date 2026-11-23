@@ -56,6 +56,18 @@ interface WebServerService {
   }): () => void
 }
 
+/**
+ * The slice of DSH's `connection` service this plugin uses (0.2.x).
+ *
+ * `requestRejection` applies Connection's Host/Origin fence and browser
+ * authentication before dispatch, returning 401/403 or `undefined` when the
+ * request may proceed. It is the same fence the shared `/api` channel uses, so
+ * a plugin route cannot be driven by an unauthenticated or cross-site page.
+ */
+interface ConnectionService {
+  requestRejection(request: { headers: NodeRequest['headers'] }): 401 | 403 | undefined
+}
+
 const MAX_BODY_BYTES = 1024 * 1024
 
 function headerValue(request: NodeRequest, name: string): string | null {
@@ -464,8 +476,30 @@ export function registerRoutes(ctx: HostContext, runtime: SideAskRuntime): () =>
   const server = ctx.get('webServer') as WebServerService | undefined
   if (server === undefined || server === null) return () => {}
 
+  // Fail closed: the routes only exist when DSH's connection service can fence
+  // them. The plugin injects both services together, so this is the
+  // hypothetical case of a host that mounts a web server without Connection.
+  const connection = ctx.get('connection') as ConnectionService | undefined
+  if (connection === undefined || connection === null) return () => {}
+
   const disposers: (() => void)[] = []
   const guard = (handler: (req: NodeRequest, res: NodeResponse) => void) => (req: NodeRequest, res: NodeResponse): void => {
+    // DSH's own access check first: Host/Origin fence plus browser
+    // authentication. A throw is treated as a rejection, never as "allowed".
+    let rejection: 401 | 403 | undefined
+    try {
+      rejection = connection.requestRejection(req)
+    } catch {
+      rejection = 403
+    }
+    if (rejection !== undefined) {
+      sendJson(res, rejection, {
+        error: makeError('BAD_REQUEST', rejection === 401 ? '未认证请求被拒绝' : '跨站请求被拒绝'),
+      })
+      return
+    }
+    // Defense in depth for the request shapes Connection does not classify
+    // (e.g. `Sec-Fetch-Site: cross-site` without an Origin).
     if (!requestAllowed(req)) {
       sendJson(res, 403, { error: makeError('BAD_REQUEST', '跨站请求被拒绝') })
       return

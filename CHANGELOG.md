@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] — 2026-11-23
+
+Security fix for the HTTP surface, requested after the marketplace entry was
+reviewed.
+
+### Fixed
+- Every plugin route now calls DSH's `ctx.connection.requestRejection(request)`
+  before dispatch. The service applies Connection's Host/Origin fence and
+  browser authentication, so an unauthenticated or cross-site request gets
+  401/403 before the runtime, the thread store, or the model is touched. A
+  throw from the service is treated as a rejection (fail closed), and the
+  existing same-origin guard still runs as a second layer.
+- The plugin injects `webServer` and `connection` together; a composition with
+  either service missing has no HTTP surface instead of an unfenced one.
+
+### Changed
+- `README` documents the access fence; the test suite grows to 244 tests with
+  the 401/403/pass-through cases.
+
+### Verified
+- `node --test` → 244/244; `node scripts/preflight.mjs` → 16/16; host + client
+  `tsc` clean; build and memory bounds unchanged.
+
 ## [0.6.1] — 2026-11-23
 
 Delivery / packaging release ahead of the awesome-dsh-plugin submission. No

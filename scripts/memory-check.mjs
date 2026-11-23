@@ -45,6 +45,9 @@ function makeContext() {
       name === 'llm' ? fakeLlm
         : name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
         : name === 'webServer' ? ctx.server
+        // The memory check measures the runtime, not the HTTP fence; admit
+        // every request so the ask route stays reachable.
+        : name === 'connection' ? { requestRejection: () => undefined }
         : undefined,
     effect: (fn) => fn(),
     inject: (names, callback) => callback(ctx),

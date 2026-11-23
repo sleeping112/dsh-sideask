@@ -80,6 +80,7 @@ On Windows use `link:E:/path/to/dsh-sideask` for the last command, and see [docs
 | Layer | Behaviour |
 |---|---|
 | Host half | Imports no session/agent write API. One `ctx.llm.stream(...)` per question; no dsh session is created and no session log is written. |
+| Access control | Every HTTP route applies DSH's `connection.requestRejection` fence (Host/Origin + browser authentication) before dispatch; unauthenticated or cross-origin requests get 401/403 without touching the runtime. |
 | Model input | Request-only user input; no durable message is produced. |
 | Storage | Side threads live in `$DSH_HOME/storages/sideask/threads.json`; UI state in browser `localStorage`. |
 | Browser half | Reads `eventSource.getSnapshot()` snapshots; never mutates conversation state. |
@@ -137,7 +138,7 @@ pnpm run typecheck          # tsc for host and browser halves
 node scripts/build.mjs      # host (tsc) + browser bundle (esbuild) + bundle-shape checks
 node scripts/check.mjs      # manifest / export / no-dangerous-HTML self checks
 node scripts/preflight.mjs  # delivery gate: manifest, built artifacts, package contents, screenshots, metadata
-node --test                 # 241 unit and integration tests
+node --test                 # 244 unit and integration tests
 node scripts/memory-check.mjs  # 200-turn heap-growth and thread-trim bounds
 ```
 

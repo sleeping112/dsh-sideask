@@ -21,10 +21,11 @@ export { Config }
 /**
  * Mount the plugin.
  *
- * The web server is injected rather than assumed: `ctx.inject(['webServer'], …)`
- * is the verified cordis pattern (the same one the shipped wallpaper plugin
- * uses), so a profile without a web server still loads the plugin and simply
- * has no HTTP surface — a visible, non-fatal state.
+ * The web server and DSH's connection service are injected rather than
+ * assumed: `ctx.inject(['webServer', 'connection'], …)` is the verified cordis
+ * pattern, and `connection.requestRejection` is the Host/Origin + browser-auth
+ * fence every route applies. A profile with either service missing still loads
+ * the plugin and simply has no HTTP surface — a visible, non-fatal state.
  */
 export function apply(ctx: unknown, config: unknown): void {
   const hostCtx = ctx as HostContext
@@ -44,7 +45,7 @@ export function apply(ctx: unknown, config: unknown): void {
     // Another composition may already provide this service name.
   }
 
-  hostCtx.inject?.(['webServer'], (child) => {
+  hostCtx.inject?.(['webServer', 'connection'], (child) => {
     child.effect?.(() => registerRoutes(child, runtime), 'sideask: http routes')
   })
 

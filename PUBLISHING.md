@@ -12,7 +12,7 @@ It is written for this repository; the authoritative source is their
 |---|---|
 | `package.json` declares `dsh.bundle.patch` → `./cordis.patch.yml` | ✅ present |
 | `cordis.patch.yml` inserts `id: sideask`, `name: dsh-sideask` | ✅ verified by `node scripts/preflight.mjs` |
-| Real, working code (not a placeholder or a meta-package) | ✅ host + browser halves, 241 tests |
+| Real, working code (not a placeholder or a meta-package) | ✅ host + browser halves, 244 tests |
 | Repository at least 1 day old | ✅ created 2026-11-18 |
 | `dsh-plugin` topic added to the repository | ✅ added (see below) |
 | Description states facts only, no marketing | ✅ see the entry below |
@@ -38,8 +38,8 @@ approval step. Push the version tag; the `release` workflow builds, runs the
 delivery gate and attaches `dsh-sideask.tgz`:
 
 ```sh
-git tag -a v0.6.1 -m "dsh-sideask v0.6.1"
-git push origin v0.6.1
+git tag -a v0.6.2 -m "dsh-sideask v0.6.2"
+git push origin v0.6.2
 ```
 
 The asset name is intentionally version-free, so this URL never rots:
@@ -86,8 +86,8 @@ Adds a floating side-chat window for DeepSeek Harness.
 - Manifest: dsh.bundle + cordis.patch.yml (installable via `dsh plugin add`)
 - Category: ui — a floating chat window inside the web UI
 - Icon + screenshots are declared in the repository (screenshots.json)
-- Prebuilt tarball attached to the v0.6.1 release (version-free asset name)
-- 241 tests; CI green on master
+- Prebuilt tarball attached to the v0.6.2 release (version-free asset name)
+- 244 tests; CI green on master
 ```
 
 Only that one file belongs in the diff. CI checks, in order: entry count,
@@ -113,6 +113,13 @@ a re-review, not automatically.
 Edit your own `data/plugins/sleeping112__dsh-sideask.yml` (usually only the
 description/icon, version is not stored there) and regenerate the READMEs if you
 wanted a preview; never edit another plugin's entry.
+
+### After the maintainer's security note
+
+The merged entry carries a sentence about missing DSH access checks. v0.6.2 adds
+`ctx.connection.requestRejection` to every route; open a follow-up PR that
+deletes only that sentence from your own entry (both locales) and names the
+release in the PR body.
 
 ## 7. Before every submission, run
 

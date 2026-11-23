@@ -80,6 +80,7 @@ Windows 下最后一条用 `link:E:/path/to/dsh-sideask`；隔离测试流程见
 | 层 | 行为 |
 |---|---|
 | 宿主半 | 不 import 任何会话/Agent 写接口。每次提问只调用一次 `ctx.llm.stream(...)`；不创建 dsh 会话、不写会话日志。 |
+| 访问控制 | 每个路由在分发前先调用 DSH 的 `connection.requestRejection` 闸门（Host/Origin + 浏览器鉴权）；未认证或跨站请求直接返回 401/403，不会触碰运行时。 |
 | 模型输入 | request-only 的 user 输入，不产生 durable message。 |
 | 存储 | 旁问线程只存在 `$DSH_HOME/storages/sideask/threads.json`；UI 状态存在浏览器 `localStorage`。 |
 | 浏览器半 | 只读 `eventSource.getSnapshot()` 快照，不修改会话状态。 |
@@ -137,7 +138,7 @@ pnpm run typecheck          # 宿主与浏览器半的 tsc
 node scripts/build.mjs      # 宿主(tsc) + 浏览器 bundle(esbuild) + bundle 形状检查
 node scripts/check.mjs      # 清单 / 导出 / 危险 HTML 自检
 node scripts/preflight.mjs  # 交付闸门：manifest、构建产物、包内容、截图、元数据
-node --test                 # 241 项单元/集成测试
+node --test                 # 244 项单元/集成测试
 node scripts/memory-check.mjs  # 200 轮堆增长与线程裁剪上界
 ```
 

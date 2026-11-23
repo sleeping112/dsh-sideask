@@ -682,6 +682,27 @@ export class FakeDefaultModel {
   }
 }
 
+// ---------------------------------------------------------- fake connection
+
+/**
+ * In-memory stand-in for DSH's `connection` service fence.
+ *
+ * `rejection` starts `undefined` (request admitted) so the existing suites
+ * exercise the route bodies; a test sets 401 or 403 to drive the guard.
+ * `calls` records every request the guard handed to `requestRejection`.
+ */
+export class FakeConnection {
+  constructor() {
+    this.rejection = undefined
+    this.calls = []
+  }
+
+  requestRejection(request) {
+    this.calls.push(request)
+    return this.rejection
+  }
+}
+
 // ------------------------------------------------------------------ mounting
 
 /**
@@ -693,7 +714,13 @@ export class FakeDefaultModel {
  * environment at construction time.
  */
 export function mountHost(plugin, config = baseConfig(), options = {}) {
-  const { llm = new FakeLlm(), defaultModel = new FakeDefaultModel(), services = new Map(), dshHome } = options
+  const {
+    llm = new FakeLlm(),
+    defaultModel = new FakeDefaultModel(),
+    connection = new FakeConnection(),
+    services = new Map(),
+    dshHome,
+  } = options
   if (dshHome !== undefined) process.env.DSH_HOME = dshHome
 
   const webServer = new FakeWebServer()
@@ -701,6 +728,7 @@ export function mountHost(plugin, config = baseConfig(), options = {}) {
   if (llm !== null) serviceMap.set('llm', llm)
   if (defaultModel !== null) serviceMap.set('agentDefaultModel', defaultModel)
   serviceMap.set('webServer', webServer)
+  serviceMap.set('connection', connection)
 
   const ctx = new FakeContext({ services: serviceMap })
   plugin.apply(ctx, config)
@@ -708,6 +736,7 @@ export function mountHost(plugin, config = baseConfig(), options = {}) {
   return {
     ctx,
     webServer,
+    connection,
     llm,
     defaultModel,
     config,

@@ -1,6 +1,6 @@
 {
   "name": "dsh-sideask",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "A floating side-conversation window for DeepSeek Harness: reads the current conversation read-only, answers with citations in its own thread, and writes back to the main composer only on an explicit click.",
   "type": "module",
   "main": "lib/host/index.js",
